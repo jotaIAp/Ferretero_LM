@@ -13,3 +13,6 @@ Bot de Telegram para Punto de Venta en ferreterías.
 ## Instalación
 ```bash
 npm install
+## 📜 Licencia
+
+Este proyecto está bajo la Licencia MIT - ver el archivo [LICENSE](LICENSE) para más detalles.
