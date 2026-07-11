@@ -1,14 +1,15 @@
 {
   "name": "bot_jose",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "Sistema POS Ferretero - Bot de Telegram",
+  "main": "src/index.js",
   "scripts": {
+    "start": "node src/index.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": ["telegram", "bot", "pos", "ferreteria"],
+  "author": "jotaIAp",
+  "license": "MIT",
   "type": "commonjs",
   "dependencies": {
     "@supabase/supabase-js": "^2.110.1",
