@@ -1,32 +1,7 @@
 const { Telegraf } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
-const http = require('http'); // <--- NUEVO
-
-// ... (TODAS TUS FUNCIONES Y DEMÁS CÓDIGO DEL BOT) ...
-
-// --- NUEVO: SERVIDOR WEB PARA RENDER ---
-const server = http.createServer((req, res) => {
-    res.writeHead(200, { 'Content-Type': 'text/plain' });
-    res.end('Bot is running!');
-});
-
-const port = process.env.PORT || 3000;
-server.listen(port, () => {
-    console.log(`✅ Servidor web auxiliar escuchando en el puerto ${port}`);
-});
-// --- FIN DEL SERVIDOR WEB ---
-
-// --- INICIO DEL BOT ---
-bot.launch()
-    .then(() => {
-        console.log("🚀 Sistema POS Ejecutivo en línea...");
-        // ... resto de tu código ...
-    })
-    .catch((error) => {
-        console.error("❌ Error al iniciar el bot:", error);
-        process.exit(1);
-    });
+const http = require('http'); // <--- PARA RENDER
 
 // 1. Validar configuraciones
 if (!process.env.TELEGRAM_TOKEN || !process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
@@ -282,10 +257,6 @@ function mostrarMenuPrincipal(ctx) {
 
 // 11. FUNCIONES DE REPORTES
 async function mostrarReporteMovimientos(ctx) {
-    const estado = getEstado(ctx.from.id);
-    
-    ctx.reply("📊 Generando reporte de movimientos...");
-    
     try {
         const { data: movimientos, error } = await supabase
             .from('movimientos_inventario')
@@ -1229,7 +1200,7 @@ bot.on('text', async (ctx) => {
 });
 
 // ==========================================
-// ACCIONES DE BOTONES
+// ACCIONES DE BOTONES (CALLBACK QUERY)
 // ==========================================
 bot.on('callback_query', async (ctx) => {
     const userId = ctx.from.id;
@@ -1373,7 +1344,7 @@ bot.on('callback_query', async (ctx) => {
         return ctx.reply(mensaje, { parse_mode: 'Markdown' });
     }
 
-    // Agregar producto (Admin)
+    // 👑 COMANDOS DE ADMINISTRADOR
     if (accion === 'agregar_producto') {
         if (estado.rol !== 'ADMINISTRADOR') {
             return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
@@ -1383,7 +1354,6 @@ bot.on('callback_query', async (ctx) => {
         return ctx.reply("🛠️ **[Alta de Producto]** Escribe el NOMBRE del nuevo artículo:");
     }
 
-    // Editar producto (Admin)
     if (accion === 'editar_producto') {
         if (estado.rol !== 'ADMINISTRADOR') {
             return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
@@ -1392,7 +1362,6 @@ bot.on('callback_query', async (ctx) => {
         return ctx.reply("📝 **[Modificar Inventario]** Escribe el nombre o marca del producto que quieres alterar:");
     }
 
-    // Ver ganancias (Admin)
     if (accion === 'ver_ganancias') {
         if (estado.rol !== 'ADMINISTRADOR') {
             return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
@@ -1475,7 +1444,6 @@ bot.on('callback_query', async (ctx) => {
         return ctx.reply(r, { parse_mode: 'Markdown' });
     }
 
-    // Ver alertas (Admin)
     if (accion === 'ver_alertas') {
         if (estado.rol !== 'ADMINISTRADOR') {
             return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
@@ -1499,7 +1467,6 @@ bot.on('callback_query', async (ctx) => {
         return ctx.reply(r, { parse_mode: 'Markdown' });
     }
 
-    // Registrar compra (Admin)
     if (accion === 'registrar_compra') {
         if (estado.rol !== 'ADMINISTRADOR') {
             return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
@@ -1513,7 +1480,6 @@ bot.on('callback_query', async (ctx) => {
         );
     }
 
-    // Reporte de movimientos (Admin)
     if (accion === 'reporte_movimientos') {
         if (estado.rol !== 'ADMINISTRADOR') {
             return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
@@ -1521,7 +1487,6 @@ bot.on('callback_query', async (ctx) => {
         return mostrarReporteMovimientos(ctx);
     }
 
-    // Resumen de inventario (Admin)
     if (accion === 'resumen_inventario') {
         if (estado.rol !== 'ADMINISTRADOR') {
             return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
@@ -1529,7 +1494,6 @@ bot.on('callback_query', async (ctx) => {
         return mostrarResumenInventario(ctx);
     }
 
-    // Movimientos por producto (Admin)
     if (accion === 'movimientos_producto') {
         if (estado.rol !== 'ADMINISTRADOR') {
             return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
@@ -1538,7 +1502,6 @@ bot.on('callback_query', async (ctx) => {
         return ctx.reply("🔍 Escribe el nombre del producto para ver sus movimientos:");
     }
 
-    // Reporte de movimientos - Ver más
     if (accion === 'reporte_movimientos_mas') {
         if (estado.rol !== 'ADMINISTRADOR') {
             return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
@@ -1658,33 +1621,22 @@ bot.on('callback_query', async (ctx) => {
 });
 
 // ==========================================
-// MANEJO DE ERRORES
+// SERVIDOR WEB PARA RENDER (AUXILIAR)
 // ==========================================
-bot.catch((err, ctx) => {
-    console.error('Error en el bot:', err);
-    ctx.reply('❌ Ocurrió un error. Por favor, intenta de nuevo.');
-});
-
-// ==========================================
-// INICIO DEL BOT
-// ==========================================
-// Importa el módulo 'http' de Node.js (si no lo tienes ya)
-const http = require('http');
-
-// Crea un servidor web que siempre responde "OK"
+// Este servidor mantiene vivo el bot en Render
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Bot is running!');
 });
 
-// Elige el puerto. Render proporciona el puerto en una variable de entorno.
-// Si no existe (en tu PC local), usa el puerto 3000.
 const port = process.env.PORT || 3000;
-
-// Pon el servidor a escuchar en ese puerto
 server.listen(port, () => {
     console.log(`✅ Servidor web auxiliar escuchando en el puerto ${port}`);
 });
+
+// ==========================================
+// INICIO DEL BOT
+// ==========================================
 bot.launch()
     .then(() => {
         console.log("🚀 Sistema POS Ejecutivo en línea...");
@@ -1709,10 +1661,12 @@ bot.launch()
 process.once('SIGINT', () => {
     console.log("🛑 Bot detenido por SIGINT");
     bot.stop('SIGINT');
+    server.close();
 });
 process.once('SIGTERM', () => {
     console.log("🛑 Bot detenido por SIGTERM");
     bot.stop('SIGTERM');
+    server.close();
 });
 
 // Manejo de errores no capturados
@@ -1721,6 +1675,3 @@ process.on('uncaughtException', (error) => {
 });
 
 console.log("✅ Script cargado correctamente");
-bot.launch().then(() => {
-    console.log("🚀 Sistema POS Ejecutivo en línea...");
-});
