@@ -1,6 +1,32 @@
 const { Telegraf } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
+const http = require('http'); // <--- NUEVO
+
+// ... (TODAS TUS FUNCIONES Y DEMÁS CÓDIGO DEL BOT) ...
+
+// --- NUEVO: SERVIDOR WEB PARA RENDER ---
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is running!');
+});
+
+const port = process.env.PORT || 3000;
+server.listen(port, () => {
+    console.log(`✅ Servidor web auxiliar escuchando en el puerto ${port}`);
+});
+// --- FIN DEL SERVIDOR WEB ---
+
+// --- INICIO DEL BOT ---
+bot.launch()
+    .then(() => {
+        console.log("🚀 Sistema POS Ejecutivo en línea...");
+        // ... resto de tu código ...
+    })
+    .catch((error) => {
+        console.error("❌ Error al iniciar el bot:", error);
+        process.exit(1);
+    });
 
 // 1. Validar configuraciones
 if (!process.env.TELEGRAM_TOKEN || !process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
@@ -1642,6 +1668,23 @@ bot.catch((err, ctx) => {
 // ==========================================
 // INICIO DEL BOT
 // ==========================================
+// Importa el módulo 'http' de Node.js (si no lo tienes ya)
+const http = require('http');
+
+// Crea un servidor web que siempre responde "OK"
+const server = http.createServer((req, res) => {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('Bot is running!');
+});
+
+// Elige el puerto. Render proporciona el puerto en una variable de entorno.
+// Si no existe (en tu PC local), usa el puerto 3000.
+const port = process.env.PORT || 3000;
+
+// Pon el servidor a escuchar en ese puerto
+server.listen(port, () => {
+    console.log(`✅ Servidor web auxiliar escuchando en el puerto ${port}`);
+});
 bot.launch()
     .then(() => {
         console.log("🚀 Sistema POS Ejecutivo en línea...");
@@ -1678,3 +1721,6 @@ process.on('uncaughtException', (error) => {
 });
 
 console.log("✅ Script cargado correctamente");
+bot.launch().then(() => {
+    console.log("🚀 Sistema POS Ejecutivo en línea...");
+});
