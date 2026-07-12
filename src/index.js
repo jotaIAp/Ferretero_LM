@@ -86,14 +86,14 @@ function mostrarProducto(producto, index = null) {
     const prefix = index !== null ? `${index + 1}. ` : '';
     const nombre = producto.nombre || 'Sin nombre';
     const stock = producto.stock || 0;
-    const seccion = producto.seccion || '📦';
+    // Si la sección es null o undefined, mostrar "📦", sino mostrar la sección
+    const seccion = producto.seccion ? `📍${producto.seccion}` : '📦';
     const precioCosto = fmt(producto.precio_costo || 0);
     const precioVenta = fmt(producto.precio_venta || 0);
     
-    return `${prefix}${nombre} 📦${stock} 📍${seccion} 💰${precioCosto} 💲${precioVenta}\n`;
+    return `${prefix}${nombre} 📦${stock} ${seccion} 💰${precioCosto} 💲${precioVenta}\n`;
 }
-
-// 8. Función de paginación optimizada para móvil (SIN BLOQUES DE CÓDIGO)
+// 8. Función de paginación optimizada para móvil
 function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     const itemsPorPagina = 5;
     const totalPaginas = Math.ceil(productos.length / itemsPorPagina);
@@ -108,11 +108,12 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
         const num = inicio + index + 1;
         const nombre = prod.nombre || 'Sin nombre';
         const stock = prod.stock || 0;
-        const seccion = prod.seccion || '📦';
+        // Si la sección es null o undefined, mostrar "📦", sino mostrar la sección
+        const seccion = prod.seccion ? `📍${prod.seccion}` : '📦';
         const costo = fmt(prod.precio_costo || 0);
         const venta = fmt(prod.precio_venta || 0);
         
-        respuesta += `${num}. ${nombre} 📦${stock} 📍${seccion} 💰${costo} 💲${venta}\n`;
+        respuesta += `${num}. ${nombre} 📦${stock} ${seccion} 💰${costo} 💲${venta}\n`;
     });
     
     if (esBusqueda) {
@@ -138,7 +139,6 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     
     return ctx.reply(respuesta, { reply_markup: keyboard, parse_mode: 'Markdown' });
 }
-
 // 9. Función para mostrar carrito optimizado para móvil
 function mostrarCarrito(ctx, estado) {
     let r = "🛒 **CARRITO**\n";
