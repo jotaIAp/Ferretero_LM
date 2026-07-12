@@ -81,7 +81,6 @@ function limpiarCarrito(estado) {
 }
 
 // 7. Función para mostrar productos en UNA SOLA LÍNEA
-// Orden: Producto | Stock | Sección | Costo | Precio
 function mostrarProducto(producto, index = null) {
     const prefix = index !== null ? `${index + 1}.` : '';
     const nombre = producto.nombre || 'Sin nombre';
@@ -90,11 +89,10 @@ function mostrarProducto(producto, index = null) {
     const precioCosto = parseFloat(producto.precio_costo || 0).toFixed(2);
     const precioVenta = parseFloat(producto.precio_venta || 0).toFixed(2);
     
-    // Formato: 1. Audifono 📦15 📍B3 💰10.00 💲20.00
     return `${prefix} ${nombre} 📦${stock} ${seccion} 💰${precioCosto} 💲${precioVenta}\n`;
 }
 
-// 8. Función de paginación optimizada (Producto primero)
+// 8. Función de paginación optimizada
 function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     const itemsPorPagina = 5;
     const totalPaginas = Math.ceil(productos.length / itemsPorPagina);
@@ -114,7 +112,6 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
         const costo = parseFloat(prod.precio_costo || 0).toFixed(2);
         const venta = parseFloat(prod.precio_venta || 0).toFixed(2);
         
-        // Formato: 1. Audifono 📦15 📍B3 💰10.00 💲20.00
         respuesta += `${num}. ${nombre} 📦${stock} ${seccion} 💰${costo} 💲${venta}\n`;
         respuesta += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
     });
@@ -164,15 +161,15 @@ function mostrarCarrito(ctx, estado) {
         totalOriginal += subOriginal;
         totalAhorro += (subOriginal - sub);
         
+        const precioUnitario = parseFloat(item.precio).toFixed(2);
         const subtotal = parseFloat(sub).toFixed(2);
         
-        // Formato: 1. Audifono x3 💲60.00 (10% desc)
         r += `${index + 1}. ${item.nombre} x${item.cantidad}`;
         if (item.descuentoPorcentaje > 0) {
             r += ` (${item.descuentoPorcentaje}% desc)`;
         }
         if (item.precioPersonalizado) {
-            r += ` ⚠️P${parseFloat(item.precio).toFixed(2)}`;
+            r += ` ⚠️P${precioUnitario}`;
         }
         r += ` 💲${subtotal}\n`;
         r += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
@@ -795,7 +792,8 @@ bot.on('text', async (ctx) => {
             precioSugerido = calcularPrecioSugerido(
                 prodElegido.precio_venta,
                 cantidadAAgregar,
-                prodElegido.precio_costo || 0            );
+                prodElegido.precio_costo || 0
+            );
             precioFinal = precioSugerido;
         }
         
@@ -967,7 +965,7 @@ bot.on('text', async (ctx) => {
                 `📦 *${estado.temp.nombre}*\n` +
                 `🏭 ${estado.temp.marca}\n` +
                 `📍 ${estado.temp.seccion}\n` +
-                `💰 Costo: ${fmt(estado.temp.precio_costo)} | 💵 Venta: ${fmt(estado.temp.precio_venta)}\n` +
+                `💰 Costo: ${fmt(estado.temp.precio_costo)} | 💲 Venta: ${fmt(estado.temp.precio_venta)}\n` +
                 `📦 Stock: ${val}`,
                 { parse_mode: 'Markdown' }
             );
@@ -1268,7 +1266,17 @@ bot.on('callback_query', async (ctx) => {
     const accion = ctx.callbackQuery.data;
     const estado = getEstado(userId);
 
-    await ctx.answerCbQuery();
+    // Manejar expiración del callback
+    try {
+        await ctx.answerCbQuery();
+    } catch (error) {
+        if (error.message && error.message.includes('query is too old')) {
+            console.log('⏳ Callback expirado, continuando...');
+        } else {
+            console.error('Error en answerCbQuery:', error);
+            return;
+        }
+    }
 
     // Iniciar sesión
     if (accion === 'iniciar_sesion') {
@@ -1519,7 +1527,7 @@ bot.on('callback_query', async (ctx) => {
 
         let r = `⚠️ **STOCK BAJO (< 5)**\n\n`;
         criticos.forEach(p => {
-            r += `• ${p.nombre} | 📦${p.stock} | 📍${p.seccion || '📦'}\n`;
+            r += `• ${p.nombre}: ${p.stock} unidades\n`;
         });
         return ctx.reply(r, { parse_mode: 'Markdown' });
     }
@@ -1712,6 +1720,21 @@ bot.launch()
         console.error("❌ Error:", error);
         process.exit(1);
     });
+
+// ==========================================
+// MANEJO DE ERRORES
+// ==========================================
+bot.catch((err, ctx) => {
+    // Si es error de callback expirado, ignorar (es normal)
+    if (err.message && err.message.includes('query is too old')) {
+        console.log('⏳ Callback expirado (normal cuando el usuario tarda en responder)');
+        return;
+    }
+    
+    console.error('❌ Error en el bot:', err);
+    ctx.reply('❌ Ocurrió un error. Por favor, intenta de nuevo.')
+        .catch(e => console.error('Error al enviar mensaje de error:', e));
+});
 
 // Manejo de señales
 process.once('SIGINT', () => {
