@@ -93,7 +93,7 @@ function mostrarProducto(producto, index = null) {
     return `${prefix}${nombre} 📦${stock} 📍${seccion} 💰${precioCosto} 💲${precioVenta}\n`;
 }
 
-// 8. Función de paginación optimizada para móvil
+// 8. Función de paginación optimizada para móvil (SIN BLOQUES DE CÓDIGO)
 function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     const itemsPorPagina = 5;
     const totalPaginas = Math.ceil(productos.length / itemsPorPagina);
@@ -103,12 +103,6 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     
     let respuesta = "📋 **PRODUCTOS**\n";
     respuesta += `📄 Pág ${pagina}/${totalPaginas} | ${productos.length} items\n\n`;
-    
-    // Encabezado de referencia
-    respuesta += "```\n";
-    respuesta += "# | Producto | Stock | Ubic | Costo | Venta\n";
-    respuesta += "-----------------------------------------\n";
-    respuesta += "```\n";
     
     paginaProductos.forEach((prod, index) => {
         const num = inicio + index + 1;
@@ -157,7 +151,7 @@ function mostrarCarrito(ctx, estado) {
     }
     
     r += `📦 ${estado.carrito.length} items\n`;
-    r += "----------------------------------------\n";
+    r += "━━━━━━━━━━━━━━━━━━━━━\n";
     
     estado.carrito.forEach((item, index) => {
         const sub = item.precio * item.cantidad;
@@ -173,10 +167,10 @@ function mostrarCarrito(ctx, estado) {
         if (item.precioPersonalizado) {
             r += ` ⚠️P${fmt(item.precioPersonalizado)}`;
         }
-        r += ` | ${fmt(sub)}\n`;
+        r += ` 💲${fmt(sub)}\n`;
     });
     
-    r += "----------------------------------------\n";
+    r += "━━━━━━━━━━━━━━━━━━━━━\n";
     r += `💰 Total: ${fmt(total)}`;
     if (totalAhorro > 0) {
         r += ` | 💵 Ahorro: ${fmt(totalAhorro)}`;
@@ -792,8 +786,7 @@ bot.on('text', async (ctx) => {
             precioSugerido = calcularPrecioSugerido(
                 prodElegido.precio_venta,
                 cantidadAAgregar,
-                prodElegido.precio_costo || 0
-            );
+                prodElegido.precio_costo || 0            );
             precioFinal = precioSugerido;
         }
         
