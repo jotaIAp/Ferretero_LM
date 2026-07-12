@@ -688,28 +688,72 @@ bot.on('text', async (ctx) => {
     }
 
     // ==========================================
-    // FLUJO: AGREGAR AL CARRITO CON TODAS LAS OPCIONES
-    // ==========================================
+// FLUJO: AGREGAR AL CARRITO CON TODAS LAS OPCIONES (CORREGIDO)
+// ==========================================
     if (estado.esperando === 'numero') {
-        const partes = texto.split(/[,;]/).map(p => p.trim());
-        const numeros = partes[0].match(/\d+/g);
+        // Limpiar y normalizar el texto
+        const textoLimpio = texto.replace(/\s+/g, ' ').trim();
+        const partes = textoLimpio.split(/[,;]/).map(p => p.trim());
         
-        if (!numeros) return ctx.reply("❌ Selección inválida. Envía el número de producto.");
+        // Extraer el número de producto (siempre el primer número)
+        const primerNumero = partes[0].match(/\d+/);
+        if (!primerNumero) {
+            return ctx.reply("❌ Selección inválida. Envía el número de producto.");
+        }
         
-        const opcion = parseInt(numeros[0]) - 1;
-        const cantidadAAgregar = numeros[1] ? parseInt(numeros[1]) : 1;
+        const opcion = parseInt(primerNumero[0]) - 1;
+        
+        // Extraer cantidad (segundo número en el texto)
+        let cantidadAAgregar = 1;
         let descuentoPorcentaje = 0;
         let descuentoFijo = 0;
         let precioPersonalizado = null;
         let usarPrecioSugerido = false;
         
+        // Buscar en todas las partes
+        let numerosEncontrados = [];
+        let tienePrecio = false;
+        
         for (let i = 0; i < partes.length; i++) {
-            const parte = partes[i].toLowerCase();
+            const parte = partes[i].toLowerCase().trim();
             
+            // Verificar si es un número puro (solo dígitos o decimales)
+            const esNumeroPuro = /^\d+$/.test(parte) || /^\d+\.\d+$/.test(parte);
+            
+            // Si es un número puro y no hemos asignado cantidad aún
+            if (esNumeroPuro && !parte.includes('precio') && !parte.includes('desc') && !parte.includes('sugerido')) {
+                const num = parseFloat(parte);
+                if (num > 0) {
+                    // Si ya tenemos una opción, este es la cantidad
+                    if (numerosEncontrados.length === 0) {
+                        // Este es el número de producto (ya lo tenemos)
+                        numerosEncontrados.push(num);
+                    } else if (numerosEncontrados.length === 1 && cantidadAAgregar === 1) {
+                        // Este es la cantidad
+                        cantidadAAgregar = parseInt(num);
+                        numerosEncontrados.push(num);
+                    }
+                }
+            }
+            
+            // Buscar precio personalizado
+            if (parte.includes('precio')) {
+                const precioMatch = parte.match(/\d+\.?\d*/);
+                if (precioMatch) {
+                    precioPersonalizado = parseFloat(precioMatch[0]);
+                    if (precioPersonalizado <= 0) {
+                        return ctx.reply("❌ El precio debe ser mayor a 0.");
+                    }
+                    tienePrecio = true;
+                }
+            }
+            
+            // Buscar precio sugerido
             if (parte.includes('sugerido') || parte.includes('sug')) {
                 usarPrecioSugerido = true;
             }
             
+            // Buscar descuento porcentual
             if ((parte.includes('desc') || parte.includes('%')) && !parte.includes('global')) {
                 const descMatch = parte.match(/\d+/);
                 if (descMatch) {
@@ -720,8 +764,9 @@ bot.on('text', async (ctx) => {
                 }
             }
             
+            // Buscar descuento fijo al total
             if ((parte.includes('s/') || parte.includes('$') || parte.includes('descuento')) && 
-                !parte.includes('%') && !parte.includes('global')) {
+                !parte.includes('%') && !parte.includes('global') && !parte.includes('precio')) {
                 const descMatch = parte.match(/\d+\.?\d*/);
                 if (descMatch) {
                     descuentoFijo = parseFloat(descMatch[0]);
@@ -730,18 +775,24 @@ bot.on('text', async (ctx) => {
                     }
                 }
             }
-            
-            if (parte.includes('precio') && !parte.includes('sugerido')) {
-                const precioMatch = parte.match(/\d+\.?\d*/);
-                if (precioMatch) {
-                    precioPersonalizado = parseFloat(precioMatch[0]);
-                    if (precioPersonalizado <= 0) {
-                        return ctx.reply("❌ El precio debe ser mayor a 0.");
-                    }
-                }
+        }
+        
+        // Si no se encontró cantidad en el parsing, intentar extraer del texto completo
+        if (cantidadAAgregar === 1) {
+            // Buscar todos los números en el texto
+            const todosNumeros = texto.match(/\d+/g);
+            if (todosNumeros && todosNumeros.length >= 2) {
+                // El segundo número podría ser la cantidad
+                cantidadAAgregar = parseInt(todosNumeros[1]);
             }
         }
         
+        // Validar cantidad
+        if (isNaN(cantidadAAgregar) || cantidadAAgregar < 1) {
+            cantidadAAgregar = 1;
+        }
+        
+        // --- Resto del código igual ---
         const productos = estado.resultadosBusqueda;
         if (!productos || opcion < 0 || opcion >= productos.length) {
             return ctx.reply("❌ Opción inválida de la lista.");
@@ -786,6 +837,7 @@ bot.on('text', async (ctx) => {
         descuentoTotal = (descuentoPorcentaje > 0 ? (precioPersonalizado || prodElegido.precio_venta) * (descuentoPorcentaje / 100) : 0) + (descuentoFijo > 0 ? descuentoFijo : 0);
         descuentoTotal = formatearNumero(descuentoTotal);
 
+        // Verificar si ya existe en el carrito
         const itemExistente = estado.carrito.find(item => item.id === prodElegido.id);
         const cantidadTotal = (itemExistente ? itemExistente.cantidad : 0) + cantidadAAgregar;
 
@@ -856,6 +908,7 @@ bot.on('text', async (ctx) => {
         
         return ctx.reply(mensaje, { reply_markup: keyboard, parse_mode: 'Markdown' });
     }
+
 
     // ==========================================
     // 👑 FLUJO ADMIN: REGISTRAR PRODUCTO NUEVO
