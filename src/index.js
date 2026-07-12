@@ -80,20 +80,20 @@ function limpiarCarrito(estado) {
     estado.descuentoGlobal = null;
 }
 
-// 7. Función para mostrar productos en UNA SOLA LÍNEA
-// Orden: Producto | Stock | Sección | Costo | Precio
+// 7. Función para mostrar productos en UNA SOLA LÍNEA (OPTIMIZADO)
 function mostrarProducto(producto, index = null) {
     const prefix = index !== null ? `${index + 1}. ` : '';
     const nombre = producto.nombre || 'Sin nombre';
     const stock = producto.stock || 0;
-    // Si la sección es null o undefined, mostrar "📦", sino mostrar la sección
     const seccion = producto.seccion ? `📍${producto.seccion}` : '📦';
     const precioCosto = fmt(producto.precio_costo || 0);
     const precioVenta = fmt(producto.precio_venta || 0);
     
+    // Formato: 1. Cinta métrica 5m 📦15 📍B3 💰3.50 💲6.00
     return `${prefix}${nombre} 📦${stock} ${seccion} 💰${precioCosto} 💲${precioVenta}\n`;
 }
-// 8. Función de paginación optimizada para móvil
+
+// 8. Función de paginación optimizada (CON LÍNEAS HORIZONTALES)
 function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     const itemsPorPagina = 5;
     const totalPaginas = Math.ceil(productos.length / itemsPorPagina);
@@ -102,24 +102,25 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     const paginaProductos = productos.slice(inicio, fin);
     
     let respuesta = "📋 **PRODUCTOS**\n";
-    respuesta += `📄 Pág ${pagina}/${totalPaginas} | ${productos.length} items\n\n`;
+    respuesta += `📄 Pág ${pagina}/${totalPaginas} | ${productos.length} items\n`;
+    respuesta += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
     
     paginaProductos.forEach((prod, index) => {
         const num = inicio + index + 1;
         const nombre = prod.nombre || 'Sin nombre';
         const stock = prod.stock || 0;
-        // Si la sección es null o undefined, mostrar "📦", sino mostrar la sección
         const seccion = prod.seccion ? `📍${prod.seccion}` : '📦';
         const costo = fmt(prod.precio_costo || 0);
         const venta = fmt(prod.precio_venta || 0);
         
         respuesta += `${num}. ${nombre} 📦${stock} ${seccion} 💰${costo} 💲${venta}\n`;
+        respuesta += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
     });
     
     if (esBusqueda) {
-        respuesta += `\n✏️ N° y cantidad (ej: 1, 3) | precio 20 | desc 10 | sugerido`;
+        respuesta += `\n✏️ N° y cantidad (ej: 1,3) | precio 20 | desc 10 | sugerido`;
     } else {
-        respuesta += `\n✏️ N° y cantidad (ej: 1, 3)`;
+        respuesta += `\n✏️ N° y cantidad (ej: 1,3)`;
     }
     
     const keyboard = {
@@ -139,7 +140,8 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     
     return ctx.reply(respuesta, { reply_markup: keyboard, parse_mode: 'Markdown' });
 }
-// 9. Función para mostrar carrito optimizado para móvil
+
+// 9. Función para mostrar carrito optimizado (CON LÍNEAS HORIZONTALES)
 function mostrarCarrito(ctx, estado) {
     let r = "🛒 **CARRITO**\n";
     let total = 0;
@@ -151,7 +153,7 @@ function mostrarCarrito(ctx, estado) {
     }
     
     r += `📦 ${estado.carrito.length} items\n`;
-    r += "━━━━━━━━━━━━━━━━━━━━━\n";
+    r += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
     
     estado.carrito.forEach((item, index) => {
         const sub = item.precio * item.cantidad;
@@ -168,9 +170,9 @@ function mostrarCarrito(ctx, estado) {
             r += ` ⚠️P${fmt(item.precioPersonalizado)}`;
         }
         r += ` 💲${fmt(sub)}\n`;
+        r += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
     });
     
-    r += "━━━━━━━━━━━━━━━━━━━━━\n";
     r += `💰 Total: ${fmt(total)}`;
     if (totalAhorro > 0) {
         r += ` | 💵 Ahorro: ${fmt(totalAhorro)}`;
