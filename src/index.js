@@ -1,7 +1,7 @@
 const { Telegraf } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
-const http = require('http'); // <--- PARA RENDER
+const http = require('http');
 
 // 1. Validar configuraciones
 if (!process.env.TELEGRAM_TOKEN || !process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
@@ -80,19 +80,20 @@ function limpiarCarrito(estado) {
     estado.descuentoGlobal = null;
 }
 
-// 7. Función para mostrar productos
+// 7. Función para mostrar productos en UNA SOLA LÍNEA
+// Orden: Producto | Stock | Sección | Costo | Precio
 function mostrarProducto(producto, index = null) {
     const prefix = index !== null ? `${index + 1}. ` : '';
     const nombre = producto.nombre || 'Sin nombre';
-    const marca = producto.marca || 'Sin marca';
-    const precioVenta = fmt(producto.precio_venta || 0);
-    const precioCosto = fmt(producto.precio_costo || 0);
     const stock = producto.stock || 0;
+    const seccion = producto.seccion || '📦';
+    const precioCosto = fmt(producto.precio_costo || 0);
+    const precioVenta = fmt(producto.precio_venta || 0);
     
-    return `${prefix}*${nombre}* (${marca})\n   💰 Venta: ${precioVenta} | Costo: ${precioCosto} | 📦 Stock: *${stock}*\n`;
+    return `${prefix}${nombre} 📦${stock} 📍${seccion} 💰${precioCosto} 💲${precioVenta}\n`;
 }
 
-// 8. Función de paginación
+// 8. Función de paginación optimizada para móvil
 function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     const itemsPorPagina = 5;
     const totalPaginas = Math.ceil(productos.length / itemsPorPagina);
@@ -100,23 +101,30 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     const fin = Math.min(inicio + itemsPorPagina, productos.length);
     const paginaProductos = productos.slice(inicio, fin);
     
-    let respuesta = "📋 **PRODUCTOS DISPONIBLES**\n\n";
+    let respuesta = "📋 **PRODUCTOS**\n";
+    respuesta += `📄 Pág ${pagina}/${totalPaginas} | ${productos.length} items\n\n`;
+    
+    // Encabezado de referencia
+    respuesta += "```\n";
+    respuesta += "# | Producto | Stock | Ubic | Costo | Venta\n";
+    respuesta += "-----------------------------------------\n";
+    respuesta += "```\n";
+    
     paginaProductos.forEach((prod, index) => {
-        respuesta += mostrarProducto(prod, inicio + index);
+        const num = inicio + index + 1;
+        const nombre = prod.nombre || 'Sin nombre';
+        const stock = prod.stock || 0;
+        const seccion = prod.seccion || '📦';
+        const costo = fmt(prod.precio_costo || 0);
+        const venta = fmt(prod.precio_venta || 0);
+        
+        respuesta += `${num}. ${nombre} 📦${stock} 📍${seccion} 💰${costo} 💲${venta}\n`;
     });
     
-    respuesta += `\n📄 Página ${pagina} de ${totalPaginas}\n`;
-    respuesta += `Total: ${productos.length} productos\n\n`;
-    
     if (esBusqueda) {
-        respuesta += "✏️ Escribe el número del producto y cantidad:\n";
-        respuesta += "Ejemplo: `1, 3` (producto 1, cantidad 3)\n";
-        respuesta += "Para precio personalizado: `1, 3, precio 15.50`\n";
-        respuesta += "Para descuento por unidad: `1, 3, desc 10` (10% por unidad)\n";
-        respuesta += "Para descuento al total: `1, 3, desc 2` (S/.2 al total)\n";
-        respuesta += "Para precio sugerido: `1, 3, sugerido` (precio por cantidad)";
+        respuesta += `\n✏️ N° y cantidad (ej: 1, 3) | precio 20 | desc 10 | sugerido`;
     } else {
-        respuesta += "🔢 **¿Vender artículo?** Escribe su número y cantidad (Ej: `2, 5`):";
+        respuesta += `\n✏️ N° y cantidad (ej: 1, 3)`;
     }
     
     const keyboard = {
@@ -124,10 +132,10 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     };
     
     if (pagina > 1) {
-        keyboard.inline_keyboard.push([{ text: "◀️ Anterior", callback_data: `pagina_${pagina-1}` }]);
+        keyboard.inline_keyboard.push([{ text: "◀️", callback_data: `pagina_${pagina-1}` }]);
     }
     if (pagina < totalPaginas) {
-        keyboard.inline_keyboard.push([{ text: "Siguiente ▶️", callback_data: `pagina_${pagina+1}` }]);
+        keyboard.inline_keyboard.push([{ text: "▶️", callback_data: `pagina_${pagina+1}` }]);
     }
     
     const estado = getEstado(ctx.from.id);
@@ -137,9 +145,9 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     return ctx.reply(respuesta, { reply_markup: keyboard, parse_mode: 'Markdown' });
 }
 
-// 9. Función para mostrar carrito
+// 9. Función para mostrar carrito optimizado para móvil
 function mostrarCarrito(ctx, estado) {
-    let r = "🛒 **Tu Carrito Actual:**\n\n";
+    let r = "🛒 **CARRITO**\n";
     let total = 0;
     let totalOriginal = 0;
     let totalAhorro = 0;
@@ -147,6 +155,9 @@ function mostrarCarrito(ctx, estado) {
     if (!estado.carrito || estado.carrito.length === 0) {
         return ctx.reply("🛒 El carrito está vacío.");
     }
+    
+    r += `📦 ${estado.carrito.length} items\n`;
+    r += "----------------------------------------\n";
     
     estado.carrito.forEach((item, index) => {
         const sub = item.precio * item.cantidad;
@@ -156,37 +167,29 @@ function mostrarCarrito(ctx, estado) {
         totalAhorro += (subOriginal - sub);
         
         r += `${index + 1}. ${item.nombre} x${item.cantidad}`;
-        if (item.precioSugerido) {
-            r += ` 📊 Precio sugerido: ${fmt(item.precioSugerido)}`;
-        }
-        r += ` — ${fmt(sub)}`;
         if (item.descuentoPorcentaje > 0) {
-            r += ` (${item.descuentoPorcentaje}% desc por unidad)`;
-        }
-        if (item.descuentoFijo > 0) {
-            r += ` (S/. ${item.descuentoFijo.toFixed(2)} desc al total)`;
+            r += ` (${item.descuentoPorcentaje}% desc)`;
         }
         if (item.precioPersonalizado) {
-            r += ` ⚠️ Precio personalizado: ${fmt(item.precioPersonalizado)}`;
+            r += ` ⚠️P${fmt(item.precioPersonalizado)}`;
         }
-        r += `\n`;
+        r += ` | ${fmt(sub)}\n`;
     });
     
-    r += `\n💰 **Total General: ${fmt(total)}**`;
+    r += "----------------------------------------\n";
+    r += `💰 Total: ${fmt(total)}`;
     if (totalAhorro > 0) {
-        r += `\n💵 **Ahorro total: ${fmt(totalAhorro)}**`;
-        r += `\n📊 **Total sin descuentos: ${fmt(totalOriginal)}**`;
+        r += ` | 💵 Ahorro: ${fmt(totalAhorro)}`;
     }
-    r += `\n\n**Selecciona una opción:**`;
+    r += `\n\n**Selecciona:**`;
     
     const keyboard = {
         inline_keyboard: [
             [{ text: "✏️ Editar Precio", callback_data: "editar_precio_carrito" }],
-            [{ text: "🏷️ Aplicar Descuento Global", callback_data: "descuento_global" }],
+            [{ text: "🏷️ Descuento Global", callback_data: "descuento_global" }],
             [{ text: "💵 Efectivo", callback_data: "pago_Efectivo" }, { text: "💳 Tarjeta", callback_data: "pago_Tarjeta" }],
             [{ text: "📱 Transferencia", callback_data: "pago_Transferencia" }],
-            [{ text: "🔙 Volver a buscar", callback_data: "volver_busqueda" }],
-            [{ text: "🏠 Menú Principal", callback_data: "menu_principal" }]
+            [{ text: "🔙 Volver", callback_data: "volver_busqueda" }]
         ]
     };
     
@@ -197,7 +200,6 @@ function mostrarCarrito(ctx, estado) {
 function mostrarMenuPrincipal(ctx) {
     const estado = getEstado(ctx.from.id);
     
-    // 🗑️ LIMPIAR CARRITO AL VOLVER AL MENÚ PRINCIPAL
     if (estado.autenticado) {
         limpiarCarrito(estado);
     }
@@ -688,55 +690,43 @@ bot.on('text', async (ctx) => {
     }
 
     // ==========================================
-// FLUJO: AGREGAR AL CARRITO CON TODAS LAS OPCIONES (CORREGIDO)
-// ==========================================
+    // FLUJO: AGREGAR AL CARRITO CON TODAS LAS OPCIONES (CORREGIDO)
+    // ==========================================
     if (estado.esperando === 'numero') {
-        // Limpiar y normalizar el texto
         const textoLimpio = texto.replace(/\s+/g, ' ').trim();
         const partes = textoLimpio.split(/[,;]/).map(p => p.trim());
         
-        // Extraer el número de producto (siempre el primer número)
         const primerNumero = partes[0].match(/\d+/);
         if (!primerNumero) {
             return ctx.reply("❌ Selección inválida. Envía el número de producto.");
         }
         
         const opcion = parseInt(primerNumero[0]) - 1;
-        
-        // Extraer cantidad (segundo número en el texto)
         let cantidadAAgregar = 1;
         let descuentoPorcentaje = 0;
         let descuentoFijo = 0;
         let precioPersonalizado = null;
         let usarPrecioSugerido = false;
         
-        // Buscar en todas las partes
         let numerosEncontrados = [];
-        let tienePrecio = false;
         
         for (let i = 0; i < partes.length; i++) {
             const parte = partes[i].toLowerCase().trim();
             
-            // Verificar si es un número puro (solo dígitos o decimales)
             const esNumeroPuro = /^\d+$/.test(parte) || /^\d+\.\d+$/.test(parte);
             
-            // Si es un número puro y no hemos asignado cantidad aún
             if (esNumeroPuro && !parte.includes('precio') && !parte.includes('desc') && !parte.includes('sugerido')) {
                 const num = parseFloat(parte);
                 if (num > 0) {
-                    // Si ya tenemos una opción, este es la cantidad
                     if (numerosEncontrados.length === 0) {
-                        // Este es el número de producto (ya lo tenemos)
                         numerosEncontrados.push(num);
                     } else if (numerosEncontrados.length === 1 && cantidadAAgregar === 1) {
-                        // Este es la cantidad
                         cantidadAAgregar = parseInt(num);
                         numerosEncontrados.push(num);
                     }
                 }
             }
             
-            // Buscar precio personalizado
             if (parte.includes('precio')) {
                 const precioMatch = parte.match(/\d+\.?\d*/);
                 if (precioMatch) {
@@ -744,16 +734,13 @@ bot.on('text', async (ctx) => {
                     if (precioPersonalizado <= 0) {
                         return ctx.reply("❌ El precio debe ser mayor a 0.");
                     }
-                    tienePrecio = true;
                 }
             }
             
-            // Buscar precio sugerido
             if (parte.includes('sugerido') || parte.includes('sug')) {
                 usarPrecioSugerido = true;
             }
             
-            // Buscar descuento porcentual
             if ((parte.includes('desc') || parte.includes('%')) && !parte.includes('global')) {
                 const descMatch = parte.match(/\d+/);
                 if (descMatch) {
@@ -764,7 +751,6 @@ bot.on('text', async (ctx) => {
                 }
             }
             
-            // Buscar descuento fijo al total
             if ((parte.includes('s/') || parte.includes('$') || parte.includes('descuento')) && 
                 !parte.includes('%') && !parte.includes('global') && !parte.includes('precio')) {
                 const descMatch = parte.match(/\d+\.?\d*/);
@@ -777,22 +763,17 @@ bot.on('text', async (ctx) => {
             }
         }
         
-        // Si no se encontró cantidad en el parsing, intentar extraer del texto completo
         if (cantidadAAgregar === 1) {
-            // Buscar todos los números en el texto
             const todosNumeros = texto.match(/\d+/g);
             if (todosNumeros && todosNumeros.length >= 2) {
-                // El segundo número podría ser la cantidad
                 cantidadAAgregar = parseInt(todosNumeros[1]);
             }
         }
         
-        // Validar cantidad
         if (isNaN(cantidadAAgregar) || cantidadAAgregar < 1) {
             cantidadAAgregar = 1;
         }
         
-        // --- Resto del código igual ---
         const productos = estado.resultadosBusqueda;
         if (!productos || opcion < 0 || opcion >= productos.length) {
             return ctx.reply("❌ Opción inválida de la lista.");
@@ -837,7 +818,6 @@ bot.on('text', async (ctx) => {
         descuentoTotal = (descuentoPorcentaje > 0 ? (precioPersonalizado || prodElegido.precio_venta) * (descuentoPorcentaje / 100) : 0) + (descuentoFijo > 0 ? descuentoFijo : 0);
         descuentoTotal = formatearNumero(descuentoTotal);
 
-        // Verificar si ya existe en el carrito
         const itemExistente = estado.carrito.find(item => item.id === prodElegido.id);
         const cantidadTotal = (itemExistente ? itemExistente.cantidad : 0) + cantidadAAgregar;
 
@@ -879,23 +859,23 @@ bot.on('text', async (ctx) => {
         let mensaje = `✅ **${prodElegido.nombre}** x${cantidadAAgregar} agregado al carrito`;
         
         if (precioSugerido !== null) {
-            mensaje += `\n📊 Precio sugerido por cantidad: ${fmt(precioSugerido)}`;
-            mensaje += `\n📊 Precio original: ${fmt(prodElegido.precio_venta)}`;
+            mensaje += `\n📊 Precio sugerido: ${fmt(precioSugerido)}`;
+            mensaje += `\n📊 Original: ${fmt(prodElegido.precio_venta)}`;
         }
         if (precioPersonalizado !== null) {
             mensaje += `\n💰 Precio personalizado: ${fmt(precioPersonalizado)}`;
-            mensaje += `\n📊 Precio original: ${fmt(prodElegido.precio_venta)}`;
+            mensaje += `\n📊 Original: ${fmt(prodElegido.precio_venta)}`;
         }
         if (descuentoPorcentaje > 0) {
-            mensaje += `\n💰 Descuento por unidad: ${descuentoPorcentaje}%`;
+            mensaje += `\n💰 Descuento: ${descuentoPorcentaje}%`;
         }
         if (descuentoFijo > 0) {
-            mensaje += `\n💰 Descuento al total: S/. ${descuentoFijo.toFixed(2)}`;
+            mensaje += `\n💰 Descuento fijo: S/. ${descuentoFijo.toFixed(2)}`;
         }
         if (descuentoTotal > 0) {
             mensaje += `\n💵 Ahorro total: ${fmt(descuentoTotal)}`;
         }
-        mensaje += `\n💵 Precio final por unidad: ${fmt(precioFinal)}`;
+        mensaje += `\n💵 Precio final: ${fmt(precioFinal)}`;
         mensaje += `\n📦 Stock restante: ${prodElegido.stock - cantidadAAgregar}`;
         
         const keyboard = {
@@ -909,9 +889,8 @@ bot.on('text', async (ctx) => {
         return ctx.reply(mensaje, { reply_markup: keyboard, parse_mode: 'Markdown' });
     }
 
-
     // ==========================================
-    // 👑 FLUJO ADMIN: REGISTRAR PRODUCTO NUEVO
+    // 👑 FLUJO ADMIN: REGISTRAR PRODUCTO NUEVO (CON SECCIÓN)
     // ==========================================
     if (estado.esperando?.startsWith('agregar_')) {
         if (estado.esperando === 'agregar_nombre') {
@@ -924,6 +903,23 @@ bot.on('text', async (ctx) => {
         if (estado.esperando === 'agregar_marca') {
             if (texto.length < 1) return ctx.reply("❌ La marca es obligatoria.");
             estado.temp.marca = texto;
+            estado.esperando = 'agregar_seccion';
+            return ctx.reply(
+                "📍 **SECCIÓN / UBICACIÓN**\n\n" +
+                "Formato: Letra + Número\n" +
+                "• `A1` (Pasillo A, Estante 1)\n" +
+                "• `B3` (Pasillo B, Estante 3)\n" +
+                "• `C2` (Pasillo C, Estante 2)",
+                { parse_mode: 'Markdown' }
+            );
+        }
+        
+        if (estado.esperando === 'agregar_seccion') {
+            const seccionValida = /^[A-Z]\d+$/i.test(texto.toUpperCase());
+            if (!seccionValida) {
+                return ctx.reply("❌ Formato inválido. Usa: `A1`, `B3`, `C12`");
+            }
+            estado.temp.seccion = texto.toUpperCase();
             estado.esperando = 'agregar_costo';
             return ctx.reply("💰 Escribe el PRECIO DE COSTO:\nEjemplo: `15.50` o `20`");
         }
@@ -965,11 +961,12 @@ bot.on('text', async (ctx) => {
             }
 
             await ctx.reply(
-                `✅ **¡Producto Creado Exitosamente!**\n\n` +
+                `✅ **¡Producto Creado!**\n\n` +
                 `📦 *${estado.temp.nombre}*\n` +
-                `🏭 Marca: ${estado.temp.marca}\n` +
-                `💰 Costo: ${fmt(estado.temp.precio_costo)} | Venta: ${fmt(estado.temp.precio_venta)}\n` +
-                `🔢 Stock: ${val}`,
+                `🏭 ${estado.temp.marca}\n` +
+                `📍 ${estado.temp.seccion}\n` +
+                `💰 Costo: ${fmt(estado.temp.precio_costo)} | 💵 Venta: ${fmt(estado.temp.precio_venta)}\n` +
+                `📦 Stock: ${val}`,
                 { parse_mode: 'Markdown' }
             );
             estado.esperando = null;
@@ -999,11 +996,11 @@ bot.on('text', async (ctx) => {
             estado.resultadosBusqueda = productos;
             estado.esperando = 'editar_seleccion';
 
-            let r = "📝 **Selecciona qué producto quieres editar:**\n\n";
+            let r = "📝 **Selecciona producto:**\n\n";
             productos.forEach((p, idx) => {
                 r += mostrarProducto(p, idx);
             });
-            r += "\n🔢 Escribe el número del producto:";
+            r += "\n🔢 Número del producto:";
             return ctx.reply(r, { parse_mode: 'Markdown' });
         } catch (error) {
             console.error("Error:", error);
@@ -1016,28 +1013,27 @@ bot.on('text', async (ctx) => {
         const productos = estado.resultadosBusqueda;
         
         if (!productos || num < 0 || num >= productos.length) {
-            return ctx.reply("❌ Selección inválida de la lista.");
+            return ctx.reply("❌ Selección inválida.");
         }
 
         estado.temp = productos[num];
         estado.esperando = 'editar_ejecutar';
 
-        let m = `🛠️ **Producto Seleccionado:**\n`;
+        let m = `🛠️ **${estado.temp.nombre}**\n`;
         m += mostrarProducto(estado.temp);
-        m += `\n**¿Qué deseas modificar?**\n\n`;
-        m += `Escribe el campo y el nuevo valor:\n`;
-        m += `• \`stock 150\` - Actualizar stock\n`;
-        m += `• \`costo 12.50\` - Actualizar costo\n`;
-        m += `• \`precio 25.90\` - Actualizar precio de venta\n`;
-        m += `• \`todos 100 15.50 25.90\` - Actualizar todos\n\n`;
-        m += `💡 *Puedes usar comas o puntos para decimales*`;
+        m += `\n**Modificar:**\n`;
+        m += `• \`stock 150\`\n`;
+        m += `• \`costo 12.50\`\n`;
+        m += `• \`precio 25.90\`\n`;
+        m += `• \`seccion B3\`\n`;
+        m += `• \`todos 100 15.50 25.90 B3\``;
         return ctx.reply(m, { parse_mode: 'Markdown' });
     }
 
     if (estado.esperando === 'editar_ejecutar') {
         const partes = texto.split(/\s+/);
         if (partes.length < 2) {
-            return ctx.reply("❌ Formato incorrecto. Usa: `stock 50` o `costo 19.90`.");
+            return ctx.reply("❌ Formato: `campo valor`");
         }
 
         const campo = partes[0].toLowerCase();
@@ -1048,50 +1044,61 @@ bot.on('text', async (ctx) => {
             const stock = parseInt(partes[1]);
             const costo = parseFloat(partes[2].replace(',', '.'));
             const precio = parseFloat(partes[3].replace(',', '.'));
+            const seccion = partes[4] ? partes[4].toUpperCase() : estado.temp.seccion || '📦';
             
             if (isNaN(stock) || stock < 0) return ctx.reply("❌ Stock inválido.");
             if (isNaN(costo) || costo <= 0) return ctx.reply("❌ Costo inválido.");
             if (isNaN(precio) || precio <= 0) return ctx.reply("❌ Precio inválido.");
-            if (precio <= costo) return ctx.reply(`⚠️ El precio de venta debe ser mayor al costo.`);
+            if (precio <= costo) return ctx.reply(`⚠️ Precio debe ser mayor al costo.`);
+            
+            const seccionValida = /^[A-Z]\d+$/i.test(seccion);
+            if (!seccionValida && seccion !== '📦') {
+                return ctx.reply("❌ Sección inválida. Usa: `A1`, `B3`, `C12`");
+            }
             
             updateObj.stock = stock;
             updateObj.precio_costo = formatearNumero(costo);
             updateObj.precio_venta = formatearNumero(precio);
+            if (seccion !== '📦') {
+                updateObj.seccion = seccion;
+            }
             
             mensajeConfirmacion = 
-                `🔢 Stock: **${stock}**\n` +
+                `📦 Stock: **${stock}**\n` +
                 `💰 Costo: ${fmt(costo)}\n` +
-                `💵 Precio Venta: ${fmt(precio)}`;
+                `💵 Venta: ${fmt(precio)}\n` +
+                `📍 Sección: ${seccion}`;
         } else {
-            const valorInput = parseFloat(partes[1].replace(',', '.'));
-            if (isNaN(valorInput)) return ctx.reply("❌ El valor debe ser un número válido.");
-
+            const valorInput = partes.slice(1).join(' ');
+            
             if (campo === 'stock') {
-                if (valorInput < 0 || !Number.isInteger(valorInput)) {
-                    return ctx.reply("❌ El stock debe ser un número entero positivo.");
-                }
-                updateObj.stock = parseInt(valorInput);
-                mensajeConfirmacion = `🔢 Stock actualizado a: **${parseInt(valorInput)}**`;
+                const val = parseInt(valorInput);
+                if (isNaN(val) || val < 0) return ctx.reply("❌ Stock inválido.");
+                updateObj.stock = val;
+                mensajeConfirmacion = `📦 Stock: **${val}**`;
             } else if (campo === 'costo') {
-                if (isNaN(valorInput) || valorInput <= 0) return ctx.reply("❌ El costo debe ser mayor a 0.");
-                updateObj.precio_costo = formatearNumero(valorInput);
-                if (estado.temp.precio_venta <= updateObj.precio_costo) {
-                    return ctx.reply(`⚠️ El precio de venta (${fmt(estado.temp.precio_venta)}) debe ser mayor al nuevo costo (${fmt(updateObj.precio_costo)}).`);
-                }
-                mensajeConfirmacion = `💰 Costo actualizado a: **${fmt(updateObj.precio_costo)}**`;
+                const val = parseFloat(valorInput.replace(',', '.'));
+                if (isNaN(val) || val <= 0) return ctx.reply("❌ Costo inválido.");
+                updateObj.precio_costo = formatearNumero(val);
+                mensajeConfirmacion = `💰 Costo: ${fmt(val)}`;
             } else if (campo === 'precio') {
-                if (isNaN(valorInput) || valorInput <= 0) return ctx.reply("❌ El precio debe ser mayor a 0.");
-                updateObj.precio_venta = formatearNumero(valorInput);
-                if (updateObj.precio_venta <= estado.temp.precio_costo) {
-                    return ctx.reply(`⚠️ El nuevo precio (${fmt(updateObj.precio_venta)}) debe ser mayor al costo (${fmt(estado.temp.precio_costo)}).`);
+                const val = parseFloat(valorInput.replace(',', '.'));
+                if (isNaN(val) || val <= 0) return ctx.reply("❌ Precio inválido.");
+                updateObj.precio_venta = formatearNumero(val);
+                mensajeConfirmacion = `💵 Precio: ${fmt(val)}`;
+            } else if (campo === 'seccion') {
+                const seccionValida = /^[A-Z]\d+$/i.test(valorInput.toUpperCase());
+                if (!seccionValida) {
+                    return ctx.reply("❌ Sección inválida. Usa: `A1`, `B3`, `C12`");
                 }
-                mensajeConfirmacion = `💵 Precio de venta actualizado a: **${fmt(updateObj.precio_venta)}**`;
+                updateObj.seccion = valorInput.toUpperCase();
+                mensajeConfirmacion = `📍 Sección: **${valorInput.toUpperCase()}**`;
             } else {
-                return ctx.reply("❌ Campo inválido. Usa: `stock`, `costo`, `precio` o `todos`.");
+                return ctx.reply("❌ Usa: `stock`, `costo`, `precio`, `seccion` o `todos`.");
             }
         }
 
-        ctx.reply("⏳ Actualizando base de datos...");
+        ctx.reply("⏳ Actualizando...");
 
         try {
             const { error } = await supabase
@@ -1100,8 +1107,8 @@ bot.on('text', async (ctx) => {
                 .eq('id', estado.temp.id);
 
             if (error) {
-                console.error("🔴 Error de actualización:", error);
-                return ctx.reply("❌ Error al actualizar el producto en Supabase.");
+                console.error("🔴 Error:", error);
+                return ctx.reply("❌ Error al actualizar.");
             }
 
             const { data: productoActualizado } = await supabase
@@ -1111,13 +1118,14 @@ bot.on('text', async (ctx) => {
                 .single();
 
             await ctx.reply(
-                `✅ **¡Modificación Exitosa!**\n\n` +
-                `📦 Producto: *${estado.temp.nombre}*\n` +
+                `✅ **¡Actualizado!**\n\n` +
+                `📦 *${estado.temp.nombre}*\n` +
                 `${mensajeConfirmacion}\n\n` +
-                `📊 **Estado Actual:**\n` +
+                `📊 **Estado actual:**\n` +
                 `💰 Costo: ${fmt(productoActualizado?.precio_costo || estado.temp.precio_costo)}\n` +
                 `💵 Venta: ${fmt(productoActualizado?.precio_venta || estado.temp.precio_venta)}\n` +
-                `🔢 Stock: ${productoActualizado?.stock || estado.temp.stock}`,
+                `📦 Stock: ${productoActualizado?.stock || estado.temp.stock}\n` +
+                `📍 Sección: ${productoActualizado?.seccion || estado.temp.seccion || '📦'}`,
                 { parse_mode: 'Markdown' }
             );
 
@@ -1126,8 +1134,8 @@ bot.on('text', async (ctx) => {
             estado.resultadosBusqueda = null;
             return mostrarMenuPrincipal(ctx);
         } catch (error) {
-            console.error("Error al actualizar:", error);
-            return ctx.reply("❌ Error al actualizar el producto.");
+            console.error("Error:", error);
+            return ctx.reply("❌ Error al actualizar.");
         }
     }
 
@@ -1139,8 +1147,8 @@ bot.on('text', async (ctx) => {
         estado.esperando = 'compra_productos';
         return ctx.reply(
             "📦 **Registrar Compra**\n\n" +
-            "Ahora busca los productos:\n" +
-            "Escribe el NOMBRE del producto a comprar:",
+            "Busca productos:\n" +
+            "Escribe el NOMBRE del producto:",
             { parse_mode: 'Markdown' }
         );
     }
@@ -1148,10 +1156,10 @@ bot.on('text', async (ctx) => {
     if (estado.esperando === 'compra_productos') {
         if (texto.toLowerCase() === 'terminar') {
             if (!estado.temp.items || estado.temp.items.length === 0) {
-                return ctx.reply("❌ No hay productos en la compra.");
+                return ctx.reply("❌ No hay productos.");
             }
             
-            ctx.reply("⏳ Registrando compra...");
+            ctx.reply("⏳ Registrando...");
             
             try {
                 const items = estado.temp.items.map(item => ({
@@ -1167,14 +1175,13 @@ bot.on('text', async (ctx) => {
                 });
 
                 if (error) {
-                    console.error("Error al registrar compra:", error);
-                    return ctx.reply(`❌ Error al registrar la compra: ${error.message}`);
+                    console.error("Error:", error);
+                    return ctx.reply(`❌ Error: ${error.message}`);
                 }
 
-                let mensaje = `✅ **COMPRA REGISTRADA EXITOSAMENTE**\n`;
+                let mensaje = `✅ **COMPRA REGISTRADA**\n`;
                 mensaje += `📝 #${compraId}\n`;
-                mensaje += `🏢 Proveedor: ${estado.temp.proveedor}\n`;
-                mensaje += `👤 Usuario: ${estado.rol}\n`;
+                mensaje += `🏢 ${estado.temp.proveedor}\n`;
                 mensaje += `-----------------------------------\n`;
                 let totalCompra = 0;
                 estado.temp.items.forEach(item => {
@@ -1183,7 +1190,7 @@ bot.on('text', async (ctx) => {
                     mensaje += `• ${item.nombre} x${item.cantidad} = ${fmt(subtotal)}\n`;
                 });
                 mensaje += `-----------------------------------\n`;
-                mensaje += `💰 Total Compra: ${fmt(totalCompra)}`;
+                mensaje += `💰 Total: ${fmt(totalCompra)}`;
 
                 estado.temp = null;
                 estado.esperando = null;
@@ -1193,7 +1200,7 @@ bot.on('text', async (ctx) => {
 
             } catch (error) {
                 console.error("Error:", error);
-                return ctx.reply(`❌ Error al registrar la compra: ${error.message}`);
+                return ctx.reply(`❌ Error: ${error.message}`);
             }
         }
 
@@ -1204,15 +1211,14 @@ bot.on('text', async (ctx) => {
             .limit(5);
 
         if (error || !productos || productos.length === 0) {
-            return ctx.reply("❌ Producto no encontrado. Intenta con otro nombre o escribe 'terminar' para finalizar.");
+            return ctx.reply("❌ Producto no encontrado. Escribe 'terminar' para finalizar.");
         }
 
-        let mensaje = "🔍 **Productos encontrados:**\n\n";
+        let mensaje = "🔍 **Productos:**\n\n";
         productos.forEach((p, i) => {
             mensaje += `${i+1}. ${p.nombre} (${p.marca}) - Costo: ${fmt(p.precio_costo)}\n`;
         });
-        mensaje += `\nEscribe el número del producto y la cantidad (Ej: "1, 10"):\n`;
-        mensaje += `O escribe "terminar" para finalizar la compra.`;
+        mensaje += `\n✏️ N° y cantidad (Ej: "1, 10") o "terminar"`;
 
         estado.temp.productosEncontrados = productos;
         estado.esperando = 'compra_seleccionar';
@@ -1239,9 +1245,9 @@ bot.on('text', async (ctx) => {
             precio: producto.precio_costo
         });
 
-        ctx.reply(`✅ ${producto.nombre} x${cantidad} agregado a la compra.`);
+        ctx.reply(`✅ ${producto.nombre} x${cantidad} agregado.`);
         estado.esperando = 'compra_productos';
-        return ctx.reply("📦 Escribe el NOMBRE del siguiente producto o 'terminar' para finalizar:");
+        return ctx.reply("📦 Siguiente producto o 'terminar':");
     }
 
     // ==========================================
@@ -1275,7 +1281,7 @@ bot.on('callback_query', async (ctx) => {
         estado.rol = null;
         limpiarCarrito(estado);
         
-        return ctx.reply("👋 Sesión cerrada correctamente.\n\n🛒 El carrito ha sido vaciado.", {
+        return ctx.reply("👋 Sesión cerrada.", {
             reply_markup: {
                 inline_keyboard: [
                     [{ text: "🔐 Iniciar Sesión", callback_data: "iniciar_sesion" }]
@@ -1293,22 +1299,22 @@ bot.on('callback_query', async (ctx) => {
     // Buscar productos
     if (accion === 'buscar_productos') {
         estado.esperando = 'busqueda';
-        return ctx.reply("🔍 Escribe el nombre o marca del producto que deseas buscar:");
+        return ctx.reply("🔍 Escribe el nombre o marca:");
     }
 
     // Ver inventario
     if (accion === 'ver_inventario') {
-        ctx.reply("📊 Consultando el inventario completo...");
+        ctx.reply("📊 Consultando...");
         const { data: productos, error } = await supabase
             .from('productos')
             .select('*')
             .order('nombre', { ascending: true });
 
         if (error) {
-            console.error("Error en inventario:", error);
-            return ctx.reply("❌ Ocurrió un error al consultar el catálogo.");
+            console.error("Error:", error);
+            return ctx.reply("❌ Error al consultar.");
         }
-        if (!productos || productos.length === 0) return ctx.reply("📦 El inventario está vacío.");
+        if (!productos || productos.length === 0) return ctx.reply("📦 Inventario vacío.");
 
         estado.resultadosBusqueda = productos;
         estado.esperando = 'numero';
@@ -1320,11 +1326,11 @@ bot.on('callback_query', async (ctx) => {
     // Ver carrito
     if (accion === 'ver_carrito') {
         if (!estado.carrito || estado.carrito.length === 0) {
-            return ctx.reply("🛒 El carrito está vacío.", {
+            return ctx.reply("🛒 Carrito vacío.", {
                 reply_markup: {
                     inline_keyboard: [
-                        [{ text: "🔍 Buscar Productos", callback_data: "buscar_productos" }],
-                        [{ text: "🏠 Menú Principal", callback_data: "menu_principal" }]
+                        [{ text: "🔍 Buscar", callback_data: "buscar_productos" }],
+                        [{ text: "🏠 Menú", callback_data: "menu_principal" }]
                     ]
                 }
             });
@@ -1335,11 +1341,11 @@ bot.on('callback_query', async (ctx) => {
     // Vaciar carrito
     if (accion === 'vaciar_carrito') {
         limpiarCarrito(estado);
-        return ctx.reply("🗑️ Carrito vaciado correctamente.", {
+        return ctx.reply("🗑️ Carrito vaciado.", {
             reply_markup: {
                 inline_keyboard: [
-                    [{ text: "🔍 Buscar Productos", callback_data: "buscar_productos" }],
-                    [{ text: "🏠 Menú Principal", callback_data: "menu_principal" }]
+                    [{ text: "🔍 Buscar", callback_data: "buscar_productos" }],
+                    [{ text: "🏠 Menú", callback_data: "menu_principal" }]
                 ]
             }
         });
@@ -1348,28 +1354,26 @@ bot.on('callback_query', async (ctx) => {
     // Editar precio del carrito
     if (accion === 'editar_precio_carrito') {
         if (!estado.carrito || estado.carrito.length === 0) {
-            return ctx.reply("🛒 El carrito está vacío.");
+            return ctx.reply("🛒 Carrito vacío.");
         }
         
-        let mensaje = "✏️ **EDITAR PRECIO DE PRODUCTO**\n\n";
-        mensaje += "Selecciona el número del producto y escribe el nuevo precio:\n\n";
+        let mensaje = "✏️ **EDITAR PRECIO**\n\n";
         
         estado.carrito.forEach((item, index) => {
             const sub = item.precio * item.cantidad;
-            mensaje += `${index + 1}. ${item.nombre} — `;
-            mensaje += `Precio actual: ${fmt(item.precio)}`;
+            mensaje += `${index + 1}. ${item.nombre} — ${fmt(item.precio)}`;
             if (item.precioPersonalizado) {
-                mensaje += ` ⚠️ (Personalizado)`;
+                mensaje += ` ⚠️(Pers)`;
             }
             if (item.precioSugerido) {
-                mensaje += ` 📊 (Sugerido: ${fmt(item.precioSugerido)})`;
+                mensaje += ` 📊(Sug: ${fmt(item.precioSugerido)})`;
             }
             mensaje += `\n`;
         });
         
-        mensaje += `\n📝 **Formato:** \`número, nuevo_precio\``;
-        mensaje += `\nEjemplo: \`1, 15.50\``;
-        mensaje += `\nO escribe \`cancelar\` para volver.`;
+        mensaje += `\n📝 Formato: \`número, nuevo_precio\``;
+        mensaje += `\nEj: \`1, 15.50\``;
+        mensaje += `\nO escribe \`cancelar\`.`;
         
         estado.esperando = 'editar_precio_item';
         estado.temp = { editando: true };
@@ -1380,17 +1384,15 @@ bot.on('callback_query', async (ctx) => {
     // Descuento global al carrito
     if (accion === 'descuento_global') {
         if (!estado.carrito || estado.carrito.length === 0) {
-            return ctx.reply("🛒 El carrito está vacío.");
+            return ctx.reply("🛒 Carrito vacío.");
         }
         
-        let mensaje = "🏷️ **DESCUENTO GLOBAL AL CARRITO**\n\n";
-        mensaje += "Aplica un descuento a TODOS los productos del carrito.\n\n";
-        mensaje += "📝 **Formatos:**\n";
-        mensaje += "• `porcentaje, 10` - 10% de descuento a todos\n";
-        mensaje += "• `fijo, 5` - S/.5 de descuento al total\n\n";
-        mensaje += "💡 *El descuento se reparte proporcionalmente entre todos los productos.*\n";
-        mensaje += `🛒 Total actual: ${fmt(estado.carrito.reduce((acc, i) => acc + (i.precio * i.cantidad), 0))}\n\n`;
-        mensaje += "Escribe `cancelar` para volver.";
+        let mensaje = "🏷️ **DESCUENTO GLOBAL**\n\n";
+        mensaje += "📝 Formatos:\n";
+        mensaje += "• `porcentaje, 10`\n";
+        mensaje += "• `fijo, 5`\n\n";
+        mensaje += `🛒 Total: ${fmt(estado.carrito.reduce((acc, i) => acc + (i.precio * i.cantidad), 0))}\n`;
+        mensaje += "Escribe `cancelar`.";
         
         estado.esperando = 'descuento_global';
         
@@ -1400,27 +1402,27 @@ bot.on('callback_query', async (ctx) => {
     // 👑 COMANDOS DE ADMINISTRADOR
     if (accion === 'agregar_producto') {
         if (estado.rol !== 'ADMINISTRADOR') {
-            return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
+            return ctx.reply("⚠️ Solo Administrador.");
         }
         estado.esperando = 'agregar_nombre';
         estado.temp = {};
-        return ctx.reply("🛠️ **[Alta de Producto]** Escribe el NOMBRE del nuevo artículo:");
+        return ctx.reply("🛠️ Escribe el NOMBRE:");
     }
 
     if (accion === 'editar_producto') {
         if (estado.rol !== 'ADMINISTRADOR') {
-            return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
+            return ctx.reply("⚠️ Solo Administrador.");
         }
         estado.esperando = 'editar_buscar';
-        return ctx.reply("📝 **[Modificar Inventario]** Escribe el nombre o marca del producto que quieres alterar:");
+        return ctx.reply("📝 Escribe el nombre o marca:");
     }
 
     if (accion === 'ver_ganancias') {
         if (estado.rol !== 'ADMINISTRADOR') {
-            return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
+            return ctx.reply("⚠️ Solo Administrador.");
         }
         
-        ctx.reply("📊 Calculando balance financiero de hoy...");
+        ctx.reply("📊 Calculando...");
         
         const inicioHoy = new Date(); 
         inicioHoy.setHours(0,0,0,0);
@@ -1434,20 +1436,20 @@ bot.on('callback_query', async (ctx) => {
             .lte('created_at', finHoy.toISOString());
 
         if (errVentas) {
-            console.error("🔴 Error al obtener ventas de hoy:", errVentas);
-            return ctx.reply("❌ Error al extraer las ventas de Supabase.");
+            console.error("Error:", errVentas);
+            return ctx.reply("❌ Error al obtener ventas.");
         }
 
         if (!ventas || ventas.length === 0) {
-            let r = `💰 **REPORTE FINANCIERO DIARIO**\n`;
-            r += `📅 _Fecha: ${new Date().toLocaleDateString()}_\n`;
+            let r = `💰 **REPORTE DIARIO**\n`;
+            r += `📅 ${new Date().toLocaleDateString()}\n`;
             r += `-----------------------------------\n`;
-            r += `📦 **Transacciones Realizadas:** 0\n`;
-            r += `💵 **Ingresos Brutos (Caja):** S/. 0.00\n`;
-            r += `📉 **Costo de Mercancía Vendida:** S/. 0.00\n`;
+            r += `📦 Ventas: 0\n`;
+            r += `💵 Ingresos: S/. 0.00\n`;
+            r += `📉 Costo: S/. 0.00\n`;
             r += `-----------------------------------\n`;
-            r += `📈 **GANANCIA NETA DEL DÍA:** S/. 0.00\n\n`;
-            r += `🛒 **Desglose por Métodos de Pago:**\n`;
+            r += `📈 GANANCIA: S/. 0.00\n\n`;
+            r += `🛒 Métodos:\n`;
             r += `• 💵 Efectivo: S/. 0.00\n`;
             r += `• 💳 Tarjeta: S/. 0.00\n`;
             r += `• 📱 Transferencia: S/. 0.00`;
@@ -1461,8 +1463,8 @@ bot.on('callback_query', async (ctx) => {
             .in('venta_id', idsVentas);
 
         if (errDetalles) {
-            console.error("🔴 Error al desglosar los costos detallados:", errDetalles);
-            return ctx.reply("❌ Error al calcular el desglose de utilidades.");
+            console.error("Error:", errDetalles);
+            return ctx.reply("❌ Error al calcular utilidades.");
         }
 
         let ingresosTotales = 0;
@@ -1481,25 +1483,25 @@ bot.on('callback_query', async (ctx) => {
 
         const gananciaNeta = ingresosTotales - costosTotales;
 
-        let r = `💰 **REPORTE FINANCIERO DIARIO**\n`;
-        r += `📅 _Fecha: ${new Date().toLocaleDateString()}_\n`;
+        let r = `💰 **REPORTE DIARIO**\n`;
+        r += `📅 ${new Date().toLocaleDateString()}\n`;
         r += `-----------------------------------\n`;
-        r += `📦 **Transacciones:** ${ventas.length}\n`;
-        r += `💵 **Ingresos Brutos (Caja):** S/. ${ingresosTotales.toFixed(2)}\n`;
-        r += `📉 **Costo de lo Vendido:** S/. ${costosTotales.toFixed(2)}\n`;
+        r += `📦 Ventas: ${ventas.length}\n`;
+        r += `💵 Ingresos: ${fmt(ingresosTotales)}\n`;
+        r += `📉 Costo: ${fmt(costosTotales)}\n`;
         r += `-----------------------------------\n`;
-        r += `📈 **GANANCIA NETA DEL DÍA:** S/. ${gananciaNeta.toFixed(2)}\n\n`;
-        r += `🛒 **Desglose por Métodos de Pago:**\n`;
-        r += `• 💵 Efectivo: S/. ${metodos.Efectivo.toFixed(2)}\n`;
-        r += `• 💳 Tarjeta: S/. ${metodos.Tarjeta.toFixed(2)}\n`;
-        r += `• 📱 Transferencia: S/. ${metodos.Transferencia.toFixed(2)}`;
+        r += `📈 GANANCIA: ${fmt(gananciaNeta)}\n\n`;
+        r += `🛒 Métodos:\n`;
+        r += `• 💵 Efectivo: ${fmt(metodos.Efectivo)}\n`;
+        r += `• 💳 Tarjeta: ${fmt(metodos.Tarjeta)}\n`;
+        r += `• 📱 Transferencia: ${fmt(metodos.Transferencia)}`;
 
         return ctx.reply(r, { parse_mode: 'Markdown' });
     }
 
     if (accion === 'ver_alertas') {
         if (estado.rol !== 'ADMINISTRADOR') {
-            return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
+            return ctx.reply("⚠️ Solo Administrador.");
         }
 
         const { data: criticos, error } = await supabase
@@ -1508,56 +1510,56 @@ bot.on('callback_query', async (ctx) => {
             .lt('stock', 5)
             .order('stock', { ascending: true });
 
-        if (error) return ctx.reply("❌ Error al consultar alarmas.");
+        if (error) return ctx.reply("❌ Error.");
         if (!criticos || criticos.length === 0) {
-            return ctx.reply("✅ ¡Excelente! Todos los productos tienen stock saludable.");
+            return ctx.reply("✅ ¡Stock saludable!");
         }
 
-        let r = `⚠️ **ALERTAS DE REABASTECIMIENTO (< 5 Unid.)**\n\n`;
+        let r = `⚠️ **STOCK BAJO (< 5)**\n\n`;
         criticos.forEach(p => {
-            r += `• ${p.nombre} (${p.marca}) — Stock Actual: **${p.stock}**\n`;
+            r += `• ${p.nombre} | 📦${p.stock} | 📍${p.seccion || '📦'}\n`;
         });
         return ctx.reply(r, { parse_mode: 'Markdown' });
     }
 
     if (accion === 'registrar_compra') {
         if (estado.rol !== 'ADMINISTRADOR') {
-            return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
+            return ctx.reply("⚠️ Solo Administrador.");
         }
         estado.esperando = 'compra_buscar';
         estado.temp = { items: [], proveedor: '' };
         return ctx.reply(
-            "📦 **REGISTRO DE COMPRA**\n\n" +
-            "Escribe el NOMBRE del proveedor:",
+            "📦 **REGISTRAR COMPRA**\n\n" +
+            "Escribe el PROVEEDOR:",
             { parse_mode: 'Markdown' }
         );
     }
 
     if (accion === 'reporte_movimientos') {
         if (estado.rol !== 'ADMINISTRADOR') {
-            return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
+            return ctx.reply("⚠️ Solo Administrador.");
         }
         return mostrarReporteMovimientos(ctx);
     }
 
     if (accion === 'resumen_inventario') {
         if (estado.rol !== 'ADMINISTRADOR') {
-            return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
+            return ctx.reply("⚠️ Solo Administrador.");
         }
         return mostrarResumenInventario(ctx);
     }
 
     if (accion === 'movimientos_producto') {
         if (estado.rol !== 'ADMINISTRADOR') {
-            return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
+            return ctx.reply("⚠️ Solo Administrador.");
         }
         estado.esperando = 'movimientos_producto_buscar';
-        return ctx.reply("🔍 Escribe el nombre del producto para ver sus movimientos:");
+        return ctx.reply("🔍 Escribe el nombre del producto:");
     }
 
     if (accion === 'reporte_movimientos_mas') {
         if (estado.rol !== 'ADMINISTRADOR') {
-            return ctx.reply("⚠️ Comando exclusivo para el ADMINISTRADOR.");
+            return ctx.reply("⚠️ Solo Administrador.");
         }
         return mostrarReporteMovimientos(ctx);
     }
@@ -1574,13 +1576,13 @@ bot.on('callback_query', async (ctx) => {
     // Seguir agregando productos
     if (accion === 'seguir_agregando') {
         estado.esperando = 'busqueda';
-        return ctx.reply("🔍 Escribe el nombre o marca de la herramienta:");
+        return ctx.reply("🔍 Escribe el nombre o marca:");
     }
 
     // Volver a buscar
     if (accion === 'volver_busqueda') {
         estado.esperando = 'busqueda';
-        return ctx.reply("🔍 Escribe el nombre o marca del producto:");
+        return ctx.reply("🔍 Escribe el nombre o marca:");
     }
 
     // Procesar pago
@@ -1595,7 +1597,7 @@ bot.on('callback_query', async (ctx) => {
         const totalCosto = estado.carrito.reduce((acc, item) => acc + ((item.costo_unitario || 0) * item.cantidad), 0);
         const totalAhorro = totalOriginal - totalVenta;
         
-        ctx.reply("⏳ Procesando transacción...");
+        ctx.reply("⏳ Procesando...");
 
         try {
             const itemsArray = estado.carrito.map(item => ({
@@ -1609,7 +1611,7 @@ bot.on('callback_query', async (ctx) => {
                 precio_sugerido: item.precioSugerido || null
             }));
 
-            console.log("📦 Items a procesar:", JSON.stringify(itemsArray, null, 2));
+            console.log("📦 Items:", JSON.stringify(itemsArray, null, 2));
 
             const { data: ventaId, error } = await supabase.rpc('procesar_venta', {
                 p_total: parseFloat(totalVenta.toFixed(2)),
@@ -1619,14 +1621,14 @@ bot.on('callback_query', async (ctx) => {
             });
 
             if (error) {
-                console.error("❌ Error al procesar venta:", error);
-                return ctx.reply(`❌ Error al procesar la venta: ${error.message || 'Error desconocido'}`);
+                console.error("❌ Error:", error);
+                return ctx.reply(`❌ Error: ${error.message || 'Error desconocido'}`);
             }
 
-            let msg = `✅ **¡Venta Procesada!**\n`;
-            msg += `📝 **Nota:** #${ventaId}\n`;
-            msg += `👷‍♂️ **Atendió:** ${estado.rol}\n`;
-            msg += `💳 **Pago:** ${metodo}\n`;
+            let msg = `✅ **¡VENTA EXITOSA!**\n`;
+            msg += `📝 #${ventaId}\n`;
+            msg += `👤 ${estado.rol}\n`;
+            msg += `💳 ${metodo}\n`;
             msg += `-----------------------------------\n`;
             
             estado.carrito.forEach(item => {
@@ -1634,16 +1636,16 @@ bot.on('callback_query', async (ctx) => {
                 const subOriginal = (item.precioOriginal || item.precio) * item.cantidad;
                 msg += `• ${item.nombre} x${item.cantidad}`;
                 if (item.precioSugerido) {
-                    msg += ` 📊 Precio sugerido: ${fmt(item.precioSugerido)}`;
+                    msg += ` 📊Sug:${fmt(item.precioSugerido)}`;
                 }
                 if (item.descuentoPorcentaje > 0) {
-                    msg += ` (${item.descuentoPorcentaje}% desc por unidad)`;
+                    msg += ` (${item.descuentoPorcentaje}% desc)`;
                 }
                 if (item.descuentoFijo > 0) {
-                    msg += ` (S/. ${item.descuentoFijo.toFixed(2)} desc al total)`;
+                    msg += ` (S/.${item.descuentoFijo.toFixed(2)} desc)`;
                 }
                 if (item.precioPersonalizado) {
-                    msg += ` ⚠️ Precio personalizado: ${fmt(item.precioPersonalizado)}`;
+                    msg += ` ⚠️P:${fmt(item.precioPersonalizado)}`;
                 }
                 if (subOriginal > subtotal) {
                     msg += ` — ${fmt(subtotal)} (antes ${fmt(subOriginal)})`;
@@ -1654,29 +1656,28 @@ bot.on('callback_query', async (ctx) => {
             });
             
             msg += `-----------------------------------\n`;
-            msg += `💰 **Total Ingreso:** ${fmt(totalVenta)}\n`;
+            msg += `💰 Total: ${fmt(totalVenta)}\n`;
             if (totalAhorro > 0) {
-                msg += `💵 **Descuento total:** ${fmt(totalAhorro)}\n`;
-                msg += `📊 **Total sin descuentos:** ${fmt(totalOriginal)}\n`;
+                msg += `💵 Ahorro: ${fmt(totalAhorro)}\n`;
+                msg += `📊 Sin desc: ${fmt(totalOriginal)}\n`;
             }
-            msg += `📉 **Total Costo:** ${fmt(totalCosto)}\n`;
-            msg += `📈 **Utilidad Bruta:** ${fmt(totalVenta - totalCosto)}`;
+            msg += `📉 Costo: ${fmt(totalCosto)}\n`;
+            msg += `📈 Utilidad: ${fmt(totalVenta - totalCosto)}`;
 
             limpiarCarrito(estado);
             
             await ctx.reply(msg, { parse_mode: 'Markdown' });
             return mostrarMenuPrincipal(ctx);
         } catch (error) {
-            console.error("❌ Error en pago:", error);
-            return ctx.reply(`❌ Error al procesar el pago: ${error.message || 'Error desconocido'}`);
+            console.error("❌ Error:", error);
+            return ctx.reply(`❌ Error: ${error.message || 'Error desconocido'}`);
         }
     }
 });
 
 // ==========================================
-// SERVIDOR WEB PARA RENDER (AUXILIAR)
+// SERVIDOR WEB PARA RENDER
 // ==========================================
-// Este servidor mantiene vivo el bot en Render
 const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'text/plain' });
     res.end('Bot is running!');
@@ -1684,7 +1685,7 @@ const server = http.createServer((req, res) => {
 
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
-    console.log(`✅ Servidor web auxiliar escuchando en el puerto ${port}`);
+    console.log(`✅ Servidor web en puerto ${port}`);
 });
 
 // ==========================================
@@ -1694,35 +1695,34 @@ bot.launch()
     .then(() => {
         console.log("🚀 Sistema POS Ejecutivo en línea...");
         console.log("✅ Bot iniciado correctamente");
-        console.log("📌 Comandos disponibles: /start, /menu");
+        console.log("📌 /start, /menu");
         console.log("👑 Admin PIN: 0316 (PRIVADO)");
         console.log("👷 Vendedor PIN: 1234 (PRIVADO)");
-        console.log("⚠️ Los PINs NO son visibles para los usuarios");
-        console.log("🎯 Todos los comandos son botones interactivos");
-        console.log("📊 Sistema de reportes de inventario activo");
-        console.log("✏️ Edición de precios en ventas activada");
-        console.log("🏷️ Precios sugeridos por cantidad activados");
-        console.log("💰 Descuentos globales al carrito activados");
-        console.log("🗑️ Carrito se limpia automáticamente al salir");
+        console.log("⚠️ PINs NO visibles");
+        console.log("🎯 Botones interactivos");
+        console.log("📊 Reportes activos");
+        console.log("✏️ Edición de precios");
+        console.log("🏷️ Precios sugeridos");
+        console.log("💰 Descuentos globales");
+        console.log("🗑️ Carrito se limpia al salir");
     })
     .catch((error) => {
-        console.error("❌ Error al iniciar el bot:", error);
+        console.error("❌ Error:", error);
         process.exit(1);
     });
 
-// Manejo de señales de terminación
+// Manejo de señales
 process.once('SIGINT', () => {
-    console.log("🛑 Bot detenido por SIGINT");
+    console.log("🛑 Detenido por SIGINT");
     bot.stop('SIGINT');
     server.close();
 });
 process.once('SIGTERM', () => {
-    console.log("🛑 Bot detenido por SIGTERM");
+    console.log("🛑 Detenido por SIGTERM");
     bot.stop('SIGTERM');
     server.close();
 });
 
-// Manejo de errores no capturados
 process.on('uncaughtException', (error) => {
     console.error("❌ Error no capturado:", error);
 });
