@@ -80,20 +80,21 @@ function limpiarCarrito(estado) {
     estado.descuentoGlobal = null;
 }
 
-// 7. Función para mostrar productos en UNA SOLA LÍNEA (OPTIMIZADO)
+// 7. Función para mostrar productos en UNA SOLA LÍNEA
+// Orden: Producto | Stock | Sección | Costo | Precio
 function mostrarProducto(producto, index = null) {
-    const prefix = index !== null ? `${index + 1}. ` : '';
+    const prefix = index !== null ? `${index + 1}.` : '';
     const nombre = producto.nombre || 'Sin nombre';
     const stock = producto.stock || 0;
     const seccion = producto.seccion ? `📍${producto.seccion}` : '📦';
-    const precioCosto = fmt(producto.precio_costo || 0);
-    const precioVenta = fmt(producto.precio_venta || 0);
+    const precioCosto = parseFloat(producto.precio_costo || 0).toFixed(2);
+    const precioVenta = parseFloat(producto.precio_venta || 0).toFixed(2);
     
-    // Formato: 1. Cinta métrica 5m 📦15 📍B3 💰3.50 💲6.00
-    return `${prefix}${nombre} 📦${stock} ${seccion} 💰${precioCosto} 💲${precioVenta}\n`;
+    // Formato: 1. Audifono 📦15 📍B3 💰10.00 💲20.00
+    return `${prefix} ${nombre} 📦${stock} ${seccion} 💰${precioCosto} 💲${precioVenta}\n`;
 }
 
-// 8. Función de paginación optimizada (CON LÍNEAS HORIZONTALES)
+// 8. Función de paginación optimizada (Producto primero)
 function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     const itemsPorPagina = 5;
     const totalPaginas = Math.ceil(productos.length / itemsPorPagina);
@@ -110,9 +111,10 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
         const nombre = prod.nombre || 'Sin nombre';
         const stock = prod.stock || 0;
         const seccion = prod.seccion ? `📍${prod.seccion}` : '📦';
-        const costo = fmt(prod.precio_costo || 0);
-        const venta = fmt(prod.precio_venta || 0);
+        const costo = parseFloat(prod.precio_costo || 0).toFixed(2);
+        const venta = parseFloat(prod.precio_venta || 0).toFixed(2);
         
+        // Formato: 1. Audifono 📦15 📍B3 💰10.00 💲20.00
         respuesta += `${num}. ${nombre} 📦${stock} ${seccion} 💰${costo} 💲${venta}\n`;
         respuesta += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
     });
@@ -141,7 +143,7 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
     return ctx.reply(respuesta, { reply_markup: keyboard, parse_mode: 'Markdown' });
 }
 
-// 9. Función para mostrar carrito optimizado (CON LÍNEAS HORIZONTALES)
+// 9. Función para mostrar carrito optimizado
 function mostrarCarrito(ctx, estado) {
     let r = "🛒 **CARRITO**\n";
     let total = 0;
@@ -162,20 +164,25 @@ function mostrarCarrito(ctx, estado) {
         totalOriginal += subOriginal;
         totalAhorro += (subOriginal - sub);
         
+        const subtotal = parseFloat(sub).toFixed(2);
+        
+        // Formato: 1. Audifono x3 💲60.00 (10% desc)
         r += `${index + 1}. ${item.nombre} x${item.cantidad}`;
         if (item.descuentoPorcentaje > 0) {
             r += ` (${item.descuentoPorcentaje}% desc)`;
         }
         if (item.precioPersonalizado) {
-            r += ` ⚠️P${fmt(item.precioPersonalizado)}`;
+            r += ` ⚠️P${parseFloat(item.precio).toFixed(2)}`;
         }
-        r += ` 💲${fmt(sub)}\n`;
+        r += ` 💲${subtotal}\n`;
         r += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n";
     });
     
-    r += `💰 Total: ${fmt(total)}`;
+    const totalFinal = parseFloat(total).toFixed(2);
+    r += `💰 Total: ${totalFinal}`;
     if (totalAhorro > 0) {
-        r += ` | 💵 Ahorro: ${fmt(totalAhorro)}`;
+        const ahorroFinal = parseFloat(totalAhorro).toFixed(2);
+        r += ` | 💵 Ahorro: ${ahorroFinal}`;
     }
     r += `\n\n**Selecciona:**`;
     
