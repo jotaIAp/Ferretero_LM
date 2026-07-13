@@ -257,66 +257,22 @@ function mostrarMenuPrincipal(ctx) {
     return ctx.reply(mensaje, { reply_markup: keyboard, parse_mode: 'Markdown' });
 }
 
-// 11. FUNCIONES DE REPORTES (CORREGIDAS)
-async function mostrarReporteMovimientos(ctx) {
+// 11. FUNCIONES DE REPORTES (CON PAGINACIÓN)
+async function mostrarReporteMovimientos(ctx, pagina = 1) {
     try {
-        // Primero, verificar si la tabla existe
-        const { data: tableCheck, error: tableError } = await supabase
+        const ITEMS_POR_PAGINA = 5;
+        
+        // Obtener total de movimientos
+        const { count: totalMovimientos, error: countError } = await supabase
             .from('movimientos_inventario')
-            .select('id')
-            .limit(1);
+            .select('*', { count: 'exact', head: true });
 
-        if (tableError && tableError.code === '42P01') {
-            return ctx.reply(
-                "❌ La tabla 'movimientos_inventario' no existe.\n\n" +
-                "Ejecuta el siguiente SQL en Supabase:\n\n" +
-                "```sql\n" +
-                "CREATE TABLE movimientos_inventario (\n" +
-                "    id SERIAL PRIMARY KEY,\n" +
-                "    producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE,\n" +
-                "    tipo_movimiento TEXT CHECK (tipo_movimiento IN ('ENTRADA', 'SALIDA', 'AJUSTE')),\n" +
-                "    cantidad INTEGER NOT NULL,\n" +
-                "    stock_anterior INTEGER NOT NULL,\n" +
-                "    stock_nuevo INTEGER NOT NULL,\n" +
-                "    motivo TEXT,\n" +
-                "    referencia TEXT,\n" +
-                "    usuario TEXT,\n" +
-                "    created_at TIMESTAMPTZ DEFAULT NOW()\n" +
-                ");\n" +
-                "```",
-                { parse_mode: 'Markdown' }
-            );
+        if (countError) {
+            console.error("Error al contar movimientos:", countError);
+            return ctx.reply("❌ Error al generar el reporte.");
         }
 
-        // Si la tabla existe, obtener los movimientos
-        const { data: movimientos, error } = await supabase
-            .from('movimientos_inventario')
-            .select(`
-                *,
-                productos (
-                    nombre,
-                    marca
-                )
-            `)
-            .order('created_at', { ascending: false })
-            .limit(50);
-
-        if (error) {
-            console.error("Error en reporte de movimientos:", error);
-            
-            // Si el error es porque la columna no existe
-            if (error.message && error.message.includes('column')) {
-                return ctx.reply(
-                    "❌ Error en la estructura de la tabla.\n\n" +
-                    "Verifica que la tabla 'movimientos_inventario' tenga las columnas correctas.\n" +
-                    "Ejecuta el script de creación en Supabase."
-                );
-            }
-            
-            return ctx.reply(`❌ Error al generar el reporte: ${error.message || 'Error desconocido'}`);
-        }
-
-        if (!movimientos || movimientos.length === 0) {
+        if (totalMovimientos === 0) {
             return ctx.reply(
                 "📊 **REPORTE DE MOVIMIENTOS**\n\n" +
                 "No hay movimientos registrados aún.\n\n" +
@@ -328,9 +284,30 @@ async function mostrarReporteMovimientos(ctx) {
             );
         }
 
-        let mensaje = "📊 **REPORTE DE MOVIMIENTOS**\n";
-        mensaje += `📅 _Últimos ${movimientos.length} movimientos_\n`;
-        mensaje += `📆 Fecha: ${new Date().toLocaleDateString()}\n`;
+        const totalPaginas = Math.ceil(totalMovimientos / ITEMS_POR_PAGINA);
+        const offset = (pagina - 1) * ITEMS_POR_PAGINA;
+
+        // Obtener movimientos de la página actual
+        const { data: movimientos, error } = await supabase
+            .from('movimientos_inventario')
+            .select(`
+                *,
+                productos (
+                    nombre,
+                    marca
+                )
+            `)
+            .order('created_at', { ascending: false })
+            .range(offset, offset + ITEMS_POR_PAGINA - 1);
+
+        if (error) {
+            console.error("Error en reporte de movimientos:", error);
+            return ctx.reply("❌ Error al generar el reporte.");
+        }
+
+        let mensaje = `📊 **REPORTE DE MOVIMIENTOS**\n`;
+        mensaje += `📅 _Página ${pagina} de ${totalPaginas}_\n`;
+        mensaje += `📦 Total: ${totalMovimientos} movimientos\n`;
         mensaje += `-----------------------------------\n\n`;
 
         movimientos.forEach(m => {
@@ -344,34 +321,38 @@ async function mostrarReporteMovimientos(ctx) {
             mensaje += `📦 ${nombreProducto}\n`;
             mensaje += `🔢 ${signo}${m.cantidad}\n`;
             mensaje += `📊 ${m.stock_anterior} → ${m.stock_nuevo}\n`;
-            if (m.motivo) {
-                mensaje += `📝 ${m.motivo}\n`;
-            }
-            if (m.referencia) {
-                mensaje += `📋 ${m.referencia}\n`;
-            }
             mensaje += `👤 ${m.usuario || 'Sistema'}\n`;
             mensaje += `🕐 ${new Date(m.created_at).toLocaleString()}\n`;
             mensaje += `-----------------------------------\n`;
         });
 
+        // Botones de navegación
         const keyboard = {
-            inline_keyboard: [
-                [{ text: "📈 Resumen", callback_data: "resumen_inventario" }],
-                [{ text: "🏠 Menú Principal", callback_data: "menu_principal" }]
-            ]
+            inline_keyboard: []
         };
+
+        if (pagina > 1) {
+            keyboard.inline_keyboard.push([
+                { text: "◀️ Anterior", callback_data: `movimientos_pagina_${pagina-1}` }
+            ]);
+        }
+
+        if (pagina < totalPaginas) {
+            keyboard.inline_keyboard.push([
+                { text: "Siguiente ▶️", callback_data: `movimientos_pagina_${pagina+1}` }
+            ]);
+        }
+
+        keyboard.inline_keyboard.push([
+            { text: "📈 Resumen", callback_data: "resumen_inventario" },
+            { text: "🏠 Menú", callback_data: "menu_principal" }
+        ]);
 
         return ctx.reply(mensaje, { reply_markup: keyboard, parse_mode: 'Markdown' });
 
     } catch (error) {
         console.error("Error en mostrarReporteMovimientos:", error);
-        return ctx.reply(
-            "❌ Error al generar el reporte.\n\n" +
-            "Detalles técnicos:\n" +
-            `${error.message || 'Error desconocido'}\n\n` +
-            "Verifica que la tabla 'movimientos_inventario' existe en Supabase."
-        );
+        return ctx.reply("❌ Error al generar el reporte.");
     }
 }
 
@@ -1599,11 +1580,28 @@ bot.on('callback_query', async (ctx) => {
         );
     }
 
+    // Reporte de movimientos (con paginación)
     if (accion === 'reporte_movimientos') {
         if (estado.rol !== 'ADMINISTRADOR') {
             return ctx.reply("⚠️ Solo Administrador.");
         }
-        return mostrarReporteMovimientos(ctx);
+        return mostrarReporteMovimientos(ctx, 1);
+    }
+
+    if (accion === 'reporte_movimientos_mas') {
+        if (estado.rol !== 'ADMINISTRADOR') {
+            return ctx.reply("⚠️ Solo Administrador.");
+        }
+        return mostrarReporteMovimientos(ctx, 1);
+    }
+
+    // Navegación de páginas de movimientos
+    if (accion.startsWith('movimientos_pagina_')) {
+        const pagina = parseInt(accion.split('_')[2]);
+        if (estado.rol !== 'ADMINISTRADOR') {
+            return ctx.reply("⚠️ Solo Administrador.");
+        }
+        return mostrarReporteMovimientos(ctx, pagina);
     }
 
     if (accion === 'resumen_inventario') {
@@ -1621,14 +1619,7 @@ bot.on('callback_query', async (ctx) => {
         return ctx.reply("🔍 Escribe el nombre del producto:");
     }
 
-    if (accion === 'reporte_movimientos_mas') {
-        if (estado.rol !== 'ADMINISTRADOR') {
-            return ctx.reply("⚠️ Solo Administrador.");
-        }
-        return mostrarReporteMovimientos(ctx);
-    }
-
-    // Navegación de páginas
+    // Navegación de páginas de productos
     if (accion.startsWith('pagina_')) {
         const pagina = parseInt(accion.split('_')[1]);
         if (estado.resultadosBusqueda) {
@@ -1755,7 +1746,9 @@ server.listen(port, () => {
 // ==========================================
 // INICIO DEL BOT
 // ==========================================
-bot.launch()
+bot.launch({
+    dropPendingUpdates: true
+})
     .then(() => {
         console.log("🚀 Sistema POS Ejecutivo en línea...");
         console.log("✅ Bot iniciado correctamente");
@@ -1771,7 +1764,7 @@ bot.launch()
         console.log("🗑️ Carrito se limpia al salir");
     })
     .catch((error) => {
-        console.error("❌ Error:", error);
+        console.error("❌ Error al iniciar el bot:", error);
         process.exit(1);
     });
 
