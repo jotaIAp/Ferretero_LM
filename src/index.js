@@ -257,9 +257,38 @@ function mostrarMenuPrincipal(ctx) {
     return ctx.reply(mensaje, { reply_markup: keyboard, parse_mode: 'Markdown' });
 }
 
-// 11. FUNCIONES DE REPORTES
+// 11. FUNCIONES DE REPORTES (CORREGIDAS)
 async function mostrarReporteMovimientos(ctx) {
     try {
+        // Primero, verificar si la tabla existe
+        const { data: tableCheck, error: tableError } = await supabase
+            .from('movimientos_inventario')
+            .select('id')
+            .limit(1);
+
+        if (tableError && tableError.code === '42P01') {
+            return ctx.reply(
+                "❌ La tabla 'movimientos_inventario' no existe.\n\n" +
+                "Ejecuta el siguiente SQL en Supabase:\n\n" +
+                "```sql\n" +
+                "CREATE TABLE movimientos_inventario (\n" +
+                "    id SERIAL PRIMARY KEY,\n" +
+                "    producto_id INTEGER REFERENCES productos(id) ON DELETE CASCADE,\n" +
+                "    tipo_movimiento TEXT CHECK (tipo_movimiento IN ('ENTRADA', 'SALIDA', 'AJUSTE')),\n" +
+                "    cantidad INTEGER NOT NULL,\n" +
+                "    stock_anterior INTEGER NOT NULL,\n" +
+                "    stock_nuevo INTEGER NOT NULL,\n" +
+                "    motivo TEXT,\n" +
+                "    referencia TEXT,\n" +
+                "    usuario TEXT,\n" +
+                "    created_at TIMESTAMPTZ DEFAULT NOW()\n" +
+                ");\n" +
+                "```",
+                { parse_mode: 'Markdown' }
+            );
+        }
+
+        // Si la tabla existe, obtener los movimientos
         const { data: movimientos, error } = await supabase
             .from('movimientos_inventario')
             .select(`
@@ -274,13 +303,27 @@ async function mostrarReporteMovimientos(ctx) {
 
         if (error) {
             console.error("Error en reporte de movimientos:", error);
-            return ctx.reply("❌ Error al generar el reporte.");
+            
+            // Si el error es porque la columna no existe
+            if (error.message && error.message.includes('column')) {
+                return ctx.reply(
+                    "❌ Error en la estructura de la tabla.\n\n" +
+                    "Verifica que la tabla 'movimientos_inventario' tenga las columnas correctas.\n" +
+                    "Ejecuta el script de creación en Supabase."
+                );
+            }
+            
+            return ctx.reply(`❌ Error al generar el reporte: ${error.message || 'Error desconocido'}`);
         }
 
         if (!movimientos || movimientos.length === 0) {
             return ctx.reply(
                 "📊 **REPORTE DE MOVIMIENTOS**\n\n" +
-                "No hay movimientos registrados aún.",
+                "No hay movimientos registrados aún.\n\n" +
+                "Los movimientos se registran automáticamente cuando:\n" +
+                "• Se vende un producto (SALIDA)\n" +
+                "• Se registra una compra (ENTRADA)\n" +
+                "• Se edita el stock de un producto (AJUSTE)",
                 { parse_mode: 'Markdown' }
             );
         }
@@ -291,23 +334,29 @@ async function mostrarReporteMovimientos(ctx) {
         mensaje += `-----------------------------------\n\n`;
 
         movimientos.forEach(m => {
-            const tipoIcono = m.tipo_movimiento === 'ENTRADA' ? '📥' : '📤';
-            const signo = m.tipo_movimiento === 'ENTRADA' ? '+' : '-';
+            const tipoIcono = m.tipo_movimiento === 'ENTRADA' ? '📥' : 
+                             m.tipo_movimiento === 'SALIDA' ? '📤' : '📝';
+            const signo = m.tipo_movimiento === 'ENTRADA' ? '+' : 
+                         m.tipo_movimiento === 'SALIDA' ? '-' : '±';
             const nombreProducto = m.productos?.nombre || 'Producto eliminado';
             
             mensaje += `${tipoIcono} *${m.tipo_movimiento}*\n`;
             mensaje += `📦 ${nombreProducto}\n`;
-            mensaje += `🔢 Cantidad: ${signo}${m.cantidad}\n`;
-            mensaje += `📊 Stock: ${m.stock_anterior} → ${m.stock_nuevo}\n`;
-            mensaje += `📝 Motivo: ${m.motivo || 'N/A'}\n`;
-            mensaje += `👤 Usuario: ${m.usuario || 'Sistema'}\n`;
+            mensaje += `🔢 ${signo}${m.cantidad}\n`;
+            mensaje += `📊 ${m.stock_anterior} → ${m.stock_nuevo}\n`;
+            if (m.motivo) {
+                mensaje += `📝 ${m.motivo}\n`;
+            }
+            if (m.referencia) {
+                mensaje += `📋 ${m.referencia}\n`;
+            }
+            mensaje += `👤 ${m.usuario || 'Sistema'}\n`;
             mensaje += `🕐 ${new Date(m.created_at).toLocaleString()}\n`;
             mensaje += `-----------------------------------\n`;
         });
 
         const keyboard = {
             inline_keyboard: [
-                [{ text: "📊 Ver más", callback_data: "reporte_movimientos_mas" }],
                 [{ text: "📈 Resumen", callback_data: "resumen_inventario" }],
                 [{ text: "🏠 Menú Principal", callback_data: "menu_principal" }]
             ]
@@ -316,8 +365,13 @@ async function mostrarReporteMovimientos(ctx) {
         return ctx.reply(mensaje, { reply_markup: keyboard, parse_mode: 'Markdown' });
 
     } catch (error) {
-        console.error("Error:", error);
-        return ctx.reply("❌ Error al generar el reporte.");
+        console.error("Error en mostrarReporteMovimientos:", error);
+        return ctx.reply(
+            "❌ Error al generar el reporte.\n\n" +
+            "Detalles técnicos:\n" +
+            `${error.message || 'Error desconocido'}\n\n` +
+            "Verifica que la tabla 'movimientos_inventario' existe en Supabase."
+        );
     }
 }
 
