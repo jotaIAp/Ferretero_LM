@@ -2,6 +2,10 @@ const { Telegraf } = require('telegraf');
 const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 const http = require('http');
+const PDFDocument = require('pdfkit');
+const sharp = require('sharp');
+const fs = require('fs');
+const path = require('path');
 
 // 1. Validar configuraciones
 if (!process.env.TELEGRAM_TOKEN || !process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
@@ -257,12 +261,157 @@ function mostrarMenuPrincipal(ctx) {
     return ctx.reply(mensaje, { reply_markup: keyboard, parse_mode: 'Markdown' });
 }
 
+// ==========================================
+// FUNCIONES PARA GENERAR TICKET PDF
+// ==========================================
+
+async function generarTicketVenta(datosVenta) {
+    return new Promise((resolve, reject) => {
+        try {
+            const doc = new PDFDocument({
+                size: [288, 400],
+                margin: 15
+            });
+            
+            const buffers = [];
+            doc.on('data', buffers.push.bind(buffers));
+            doc.on('end', () => {
+                const pdfData = Buffer.concat(buffers);
+                resolve(pdfData);
+            });
+            
+            // Título
+            doc.fontSize(14).font('Helvetica-Bold')
+                .text('🏪 FERRETERÍA LM', { align: 'center' })
+                .fontSize(10).font('Helvetica')
+                .text('RUC: 20601234567', { align: 'center' })
+                .text('Av. Principal 123 - Lima', { align: 'center' })
+                .text('Tel: 987-654-321', { align: 'center' })
+                .moveDown();
+            
+            doc.fontSize(8).text('─'.repeat(28), { align: 'center' });
+            doc.moveDown(0.5);
+            
+            // Datos del cliente
+            doc.fontSize(10).font('Helvetica-Bold')
+                .text('📋 DATOS DEL CLIENTE', { align: 'center' })
+                .fontSize(9).font('Helvetica');
+            
+            if (datosVenta.cliente) doc.text(`Cliente: ${datosVenta.cliente}`);
+            if (datosVenta.dni && datosVenta.dni !== '-') doc.text(`DNI: ${datosVenta.dni}`);
+            if (datosVenta.ruc && datosVenta.ruc !== '-') doc.text(`RUC: ${datosVenta.ruc}`);
+            if (datosVenta.telefono && datosVenta.telefono !== '-') doc.text(`Teléfono: ${datosVenta.telefono}`);
+            
+            doc.moveDown(0.5);
+            doc.fontSize(8).text('─'.repeat(28), { align: 'center' });
+            doc.moveDown(0.5);
+            
+            // Detalles de la venta
+            doc.fontSize(10).font('Helvetica-Bold')
+                .text('🛒 DETALLE DE VENTA', { align: 'center' })
+                .fontSize(8).font('Helvetica');
+            
+            doc.moveDown(0.3);
+            
+            doc.fontSize(8).font('Helvetica-Bold')
+                .text('Cant', 10, doc.y, { width: 30 })
+                .text('Producto', 40, doc.y, { width: 100 })
+                .text('P. Unit', 140, doc.y, { width: 50, align: 'right' })
+                .text('Subtotal', 190, doc.y, { width: 60, align: 'right' });
+            
+            doc.moveDown(0.3);
+            
+            doc.fontSize(8).font('Helvetica');
+            let total = 0;
+            
+            datosVenta.productos.forEach((item, index) => {
+                if (index >= 8) {
+                    if (index === 8) {
+                        doc.text('... y más', 10, doc.y, { width: 200, align: 'center' });
+                    }
+                    return;
+                }
+                const subtotal = item.precio * item.cantidad;
+                total += subtotal;
+                doc.text(`${item.cantidad}`, 10, doc.y, { width: 30 })
+                    .text(`${item.nombre.substring(0, 18)}`, 40, doc.y, { width: 100 })
+                    .text(`S/ ${item.precio.toFixed(2)}`, 140, doc.y, { width: 50, align: 'right' })
+                    .text(`S/ ${subtotal.toFixed(2)}`, 190, doc.y, { width: 60, align: 'right' });
+                doc.moveDown(0.3);
+            });
+            
+            doc.moveDown(0.5);
+            doc.fontSize(8).text('─'.repeat(28), { align: 'center' });
+            doc.moveDown(0.3);
+            
+            // Totales
+            const totalConDescuento = datosVenta.totalConDescuento || total;
+            const descuento = datosVenta.descuento || 0;
+            
+            doc.fontSize(9).font('Helvetica');
+            doc.text(`Total: S/ ${total.toFixed(2)}`, 120, doc.y, { width: 130, align: 'right' });
+            
+            if (descuento > 0) {
+                doc.moveDown(0.3);
+                doc.text(`Descuento: -S/ ${descuento.toFixed(2)}`, 120, doc.y, { width: 130, align: 'right' });
+            }
+            
+            if (totalConDescuento !== total) {
+                doc.moveDown(0.3);
+                doc.fontSize(10).font('Helvetica-Bold')
+                    .text(`TOTAL PAGAR: S/ ${totalConDescuento.toFixed(2)}`, 100, doc.y, { width: 150, align: 'right' });
+            }
+            
+            doc.moveDown(0.5);
+            
+            doc.fontSize(9).font('Helvetica')
+                .text(`💳 Pago: ${datosVenta.metodoPago}`, { align: 'center' })
+                .text(`👤 Atendió: ${datosVenta.vendedor}`, { align: 'center' })
+                .text(`📅 ${new Date().toLocaleString()}`, { align: 'center' });
+            
+            doc.moveDown(0.5);
+            doc.fontSize(8).text('─'.repeat(28), { align: 'center' });
+            doc.moveDown(0.3);
+            
+            doc.fontSize(10).font('Helvetica-Bold')
+                .text('🎉 GRACIAS POR SU COMPRA', { align: 'center' })
+                .fontSize(8).font('Helvetica')
+                .text('¡Vuelva pronto!', { align: 'center' })
+                .text('📱 Comparta este ticket por WhatsApp', { align: 'center', fontSize: 7 });
+            
+            doc.end();
+        } catch (error) {
+            reject(error);
+        }
+    });
+}
+
+async function enviarTicket(ctx, datosVenta) {
+    try {
+        const pdfBuffer = await generarTicketVenta(datosVenta);
+        
+        await ctx.replyWithDocument({
+            source: pdfBuffer,
+            filename: `ticket_${datosVenta.numero}.pdf`
+        }, {
+            caption: `✅ **¡VENTA EXITOSA!**\n📝 Ticket #${datosVenta.numero}\n\n📱 *Comparte este ticket con tu cliente por WhatsApp*`,
+            parse_mode: 'Markdown'
+        });
+        
+        return true;
+    } catch (error) {
+        console.error("Error al enviar ticket:", error);
+        return false;
+    }
+}
+
+// ==========================================
 // 11. FUNCIONES DE REPORTES (CON PAGINACIÓN)
+// ==========================================
 async function mostrarReporteMovimientos(ctx, pagina = 1) {
     try {
         const ITEMS_POR_PAGINA = 5;
         
-        // Obtener total de movimientos
         const { count: totalMovimientos, error: countError } = await supabase
             .from('movimientos_inventario')
             .select('*', { count: 'exact', head: true });
@@ -287,7 +436,6 @@ async function mostrarReporteMovimientos(ctx, pagina = 1) {
         const totalPaginas = Math.ceil(totalMovimientos / ITEMS_POR_PAGINA);
         const offset = (pagina - 1) * ITEMS_POR_PAGINA;
 
-        // Obtener movimientos de la página actual
         const { data: movimientos, error } = await supabase
             .from('movimientos_inventario')
             .select(`
@@ -326,7 +474,6 @@ async function mostrarReporteMovimientos(ctx, pagina = 1) {
             mensaje += `-----------------------------------\n`;
         });
 
-        // Botones de navegación
         const keyboard = {
             inline_keyboard: []
         };
@@ -573,6 +720,118 @@ bot.on('text', async (ctx) => {
     }
 
     if (!estado.autenticado) return ctx.reply("⚠️ Por favor ejecuta /start para ingresar al sistema.");
+
+    // ==========================================
+    // FLUJO: DATOS DEL CLIENTE Y PROCESAR VENTA
+    // ==========================================
+    if (estado.esperando === 'datos_cliente') {
+        if (texto.toLowerCase() === 'cancelar') {
+            estado.esperando = null;
+            estado.temp = null;
+            return ctx.reply("❌ Venta cancelada.");
+        }
+        
+        const partes = texto.split(/[,;]/).map(p => p.trim());
+        const cliente = {
+            nombre: partes[0] || 'Cliente',
+            dni: partes[1] || '-',
+            ruc: partes[2] || '-',
+            telefono: partes[3] || '-'
+        };
+        
+        if (cliente.nombre === '-') {
+            return ctx.reply("❌ El nombre del cliente es obligatorio. Usa el formato: `Nombre, DNI, RUC, Teléfono`");
+        }
+        
+        const metodo = estado.temp.metodoPago || 'Efectivo';
+        const totalVenta = estado.carrito.reduce((acc, item) => acc + (item.precio * item.cantidad), 0);
+        const totalOriginal = estado.carrito.reduce((acc, item) => acc + ((item.precioOriginal || item.precio) * item.cantidad), 0);
+        const totalCosto = estado.carrito.reduce((acc, item) => acc + ((item.costo_unitario || 0) * item.cantidad), 0);
+        const totalAhorro = totalOriginal - totalVenta;
+        
+        ctx.reply("⏳ Procesando venta y generando ticket...");
+
+        try {
+            const itemsArray = estado.carrito.map(item => ({
+                id: item.id,
+                cantidad: item.cantidad,
+                precio: parseFloat(item.precio.toFixed(2)),
+                nombre: item.nombre,
+                precio_original: item.precioOriginal || item.precio,
+                descuento_porcentaje: item.descuentoPorcentaje || 0,
+                descuento_fijo: item.descuentoFijo || 0,
+                precio_personalizado: item.precioPersonalizado || null,
+                precio_sugerido: item.precioSugerido || null
+            }));
+
+            const { data: ventaId, error } = await supabase.rpc('procesar_venta', {
+                p_total: parseFloat(totalVenta.toFixed(2)),
+                p_metodo_pago: metodo,
+                p_rol_vendedor: estado.rol || 'VENDEDOR',
+                p_items: itemsArray.map(item => ({
+                    id: item.id,
+                    cantidad: item.cantidad,
+                    precio: item.precio
+                }))
+            });
+
+            if (error) {
+                console.error("❌ Error al procesar venta:", error);
+                return ctx.reply(`❌ Error al procesar la venta: ${error.message || 'Error desconocido'}`);
+            }
+
+            const datosTicket = {
+                numero: ventaId,
+                cliente: cliente.nombre,
+                dni: cliente.dni,
+                ruc: cliente.ruc,
+                telefono: cliente.telefono,
+                productos: estado.carrito.map(item => ({
+                    nombre: item.nombre,
+                    cantidad: item.cantidad,
+                    precio: item.precio
+                })),
+                total: totalOriginal,
+                totalConDescuento: totalVenta,
+                descuento: totalAhorro,
+                metodoPago: metodo,
+                vendedor: estado.rol || 'VENDEDOR'
+            };
+
+            await enviarTicket(ctx, datosTicket);
+
+            let msg = `✅ **¡VENTA EXITOSA!**\n`;
+            msg += `📝 #${ventaId}\n`;
+            msg += `👤 Cliente: ${cliente.nombre}\n`;
+            if (cliente.dni !== '-') msg += `🪪 DNI: ${cliente.dni}\n`;
+            if (cliente.ruc !== '-') msg += `📋 RUC: ${cliente.ruc}\n`;
+            if (cliente.telefono !== '-') msg += `📱 Tel: ${cliente.telefono}\n`;
+            msg += `💳 Pago: ${metodo}\n`;
+            msg += `-----------------------------------\n`;
+            
+            estado.carrito.forEach(item => {
+                const subtotal = item.precio * item.cantidad;
+                msg += `• ${item.nombre} x${item.cantidad} — ${fmt(subtotal)}\n`;
+            });
+            
+            msg += `-----------------------------------\n`;
+            msg += `💰 Total: ${fmt(totalVenta)}\n`;
+            if (totalAhorro > 0) {
+                msg += `💵 Ahorro: ${fmt(totalAhorro)}\n`;
+            }
+            msg += `📈 Utilidad: ${fmt(totalVenta - totalCosto)}\n`;
+
+            limpiarCarrito(estado);
+            estado.temp = null;
+            
+            await ctx.reply(msg, { parse_mode: 'Markdown' });
+            return mostrarMenuPrincipal(ctx);
+            
+        } catch (error) {
+            console.error("❌ Error en venta:", error);
+            return ctx.reply(`❌ Error al procesar la venta: ${error.message || 'Error desconocido'}`);
+        }
+    }
 
     // ==========================================
     // FLUJO: EDITAR PRECIO DE ITEM EN CARRITO
@@ -1640,93 +1899,29 @@ bot.on('callback_query', async (ctx) => {
         return ctx.reply("🔍 Escribe el nombre o marca:");
     }
 
-    // Procesar pago
+    // Procesar pago - Solicitar datos del cliente primero
     if (accion.startsWith('pago_')) {
         const metodo = accion.split('_')[1];
         if (!estado.carrito || estado.carrito.length === 0) {
             return ctx.reply("⚠️ Carrito vacío.");
         }
-
-        const totalVenta = estado.carrito.reduce((acc, item) => acc + (item.precio * item.cantidad), 0);
-        const totalOriginal = estado.carrito.reduce((acc, item) => acc + ((item.precioOriginal || item.precio) * item.cantidad), 0);
-        const totalCosto = estado.carrito.reduce((acc, item) => acc + ((item.costo_unitario || 0) * item.cantidad), 0);
-        const totalAhorro = totalOriginal - totalVenta;
         
-        ctx.reply("⏳ Procesando...");
-
-        try {
-            const itemsArray = estado.carrito.map(item => ({
-                id: item.id,
-                cantidad: item.cantidad,
-                precio: parseFloat(item.precio.toFixed(2)),
-                precio_original: item.precioOriginal || item.precio,
-                descuento_porcentaje: item.descuentoPorcentaje || 0,
-                descuento_fijo: item.descuentoFijo || 0,
-                precio_personalizado: item.precioPersonalizado || null,
-                precio_sugerido: item.precioSugerido || null
-            }));
-
-            console.log("📦 Items:", JSON.stringify(itemsArray, null, 2));
-
-            const { data: ventaId, error } = await supabase.rpc('procesar_venta', {
-                p_total: parseFloat(totalVenta.toFixed(2)),
-                p_metodo_pago: metodo,
-                p_rol_vendedor: estado.rol || 'VENDEDOR',
-                p_items: itemsArray
-            });
-
-            if (error) {
-                console.error("❌ Error:", error);
-                return ctx.reply(`❌ Error: ${error.message || 'Error desconocido'}`);
-            }
-
-            let msg = `✅ **¡VENTA EXITOSA!**\n`;
-            msg += `📝 #${ventaId}\n`;
-            msg += `👤 ${estado.rol}\n`;
-            msg += `💳 ${metodo}\n`;
-            msg += `-----------------------------------\n`;
-            
-            estado.carrito.forEach(item => {
-                const subtotal = item.precio * item.cantidad;
-                const subOriginal = (item.precioOriginal || item.precio) * item.cantidad;
-                msg += `• ${item.nombre} x${item.cantidad}`;
-                if (item.precioSugerido) {
-                    msg += ` 📊Sug:${fmt(item.precioSugerido)}`;
-                }
-                if (item.descuentoPorcentaje > 0) {
-                    msg += ` (${item.descuentoPorcentaje}% desc)`;
-                }
-                if (item.descuentoFijo > 0) {
-                    msg += ` (S/.${item.descuentoFijo.toFixed(2)} desc)`;
-                }
-                if (item.precioPersonalizado) {
-                    msg += ` ⚠️P:${fmt(item.precioPersonalizado)}`;
-                }
-                if (subOriginal > subtotal) {
-                    msg += ` — ${fmt(subtotal)} (antes ${fmt(subOriginal)})`;
-                } else {
-                    msg += ` — ${fmt(subtotal)}`;
-                }
-                msg += `\n`;
-            });
-            
-            msg += `-----------------------------------\n`;
-            msg += `💰 Total: ${fmt(totalVenta)}\n`;
-            if (totalAhorro > 0) {
-                msg += `💵 Ahorro: ${fmt(totalAhorro)}\n`;
-                msg += `📊 Sin desc: ${fmt(totalOriginal)}\n`;
-            }
-            msg += `📉 Costo: ${fmt(totalCosto)}\n`;
-            msg += `📈 Utilidad: ${fmt(totalVenta - totalCosto)}`;
-
-            limpiarCarrito(estado);
-            
-            await ctx.reply(msg, { parse_mode: 'Markdown' });
-            return mostrarMenuPrincipal(ctx);
-        } catch (error) {
-            console.error("❌ Error:", error);
-            return ctx.reply(`❌ Error: ${error.message || 'Error desconocido'}`);
-        }
+        estado.temp = estado.temp || {};
+        estado.temp.metodoPago = metodo;
+        estado.esperando = 'datos_cliente';
+        
+        return ctx.reply(
+            "📋 **DATOS DEL CLIENTE**\n\n" +
+            "Para generar el ticket de venta, ingresa los datos del cliente:\n\n" +
+            "📝 **Formato:**\n" +
+            "`Nombre, DNI, RUC, Teléfono`\n\n" +
+            "Ejemplo:\n" +
+            "`Juan Pérez, 12345678, 20601234567, 987654321`\n\n" +
+            "Opcional: Puedes dejar campos en blanco con `-`\n" +
+            "Ejemplo: `Juan Pérez, 12345678, -, -`\n\n" +
+            "✏️ Escribe los datos del cliente:",
+            { parse_mode: 'Markdown' }
+        );
     }
 });
 
@@ -1762,6 +1957,7 @@ bot.launch({
         console.log("🏷️ Precios sugeridos");
         console.log("💰 Descuentos globales");
         console.log("🗑️ Carrito se limpia al salir");
+        console.log("📄 Tickets PDF generados automáticamente");
     })
     .catch((error) => {
         console.error("❌ Error al iniciar el bot:", error);
@@ -1772,7 +1968,6 @@ bot.launch({
 // MANEJO DE ERRORES
 // ==========================================
 bot.catch((err, ctx) => {
-    // Si es error de callback expirado, ignorar (es normal)
     if (err.message && err.message.includes('query is too old')) {
         console.log('⏳ Callback expirado (normal cuando el usuario tarda en responder)');
         return;
