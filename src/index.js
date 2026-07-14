@@ -259,7 +259,7 @@ function mostrarMenuPrincipal(ctx) {
 }
 
 // ==========================================
-// FUNCIÓN PARA GENERAR TICKET PDF (FORMATO TIENDA)
+// FUNCIÓN PARA GENERAR TICKET PDF (BLANCO Y NEGRO, SOLO LÍNEAS)
 // ==========================================
 
 async function generarTicketVenta(datosVenta) {
@@ -277,122 +277,46 @@ async function generarTicketVenta(datosVenta) {
                 resolve(pdfData);
             });
             
-            // --- FONDO CON COLORES BLUR/DIFUMINADO ---
-            // Rectángulo base negro
-            doc.rect(0, 0, 288, 420)
-                .fill('#0a0a0a');
-            
-            // Círculo 1: Azul difuminado (superior izquierdo)
-            for (let i = 0; i < 3; i++) {
-                const opacidad = 0.3 - (i * 0.08);
-                const radio = 180 - (i * 30);
-                doc.fillOpacity(opacidad);
-                doc.fillColor('#1a237e');
-                doc.circle(30 + i * 20, 20 + i * 15, radio)
-                    .fill();
-            }
-            
-            // Círculo 2: Celeste difuminado (superior derecho)
-            for (let i = 0; i < 3; i++) {
-                const opacidad = 0.25 - (i * 0.07);
-                const radio = 150 - (i * 25);
-                doc.fillOpacity(opacidad);
-                doc.fillColor('#4fc3f7');
-                doc.circle(250 - i * 20, 30 + i * 10, radio)
-                    .fill();
-            }
-            
-            // Círculo 3: Azul más intenso (centro)
-            for (let i = 0; i < 2; i++) {
-                const opacidad = 0.2 - (i * 0.08);
-                const radio = 120 - (i * 20);
-                doc.fillOpacity(opacidad);
-                doc.fillColor('#0d47a1');
-                doc.circle(144, 210 + i * 20, radio)
-                    .fill();
-            }
-            
-            // Círculo 4: Celeste claro (inferior)
-            for (let i = 0; i < 2; i++) {
-                const opacidad = 0.15 - (i * 0.05);
-                const radio = 130 - (i * 20);
-                doc.fillOpacity(opacidad);
-                doc.fillColor('#80deea');
-                doc.circle(30 + i * 30, 380 - i * 20, radio)
-                    .fill();
-            }
-            
-            // Restaurar opacidad
-            doc.fillOpacity(1);
-            
-            // --- TEXTO CON SOMBRA (efecto brillo) ---
-            const sombraOffset = 1;
-            const colores = {
-                titulo: '#ffffff',
-                texto: '#e0e0e0',
-                resaltado: '#4fc3f7',
-                total: '#ffd54f'
-            };
+            // --- TICKET BLANCO Y NEGRO ---
+            // Fondo blanco
+            doc.rect(0, 0, 288, 420).fill('#ffffff');
             
             // --- ENCABEZADO TIENDA ---
-            // Sombra del título
             doc.fillColor('#000000')
-                .fontSize(16).font('Helvetica-Bold')
-                .text('"EYMI E"', 10 + sombraOffset, 15 + sombraOffset, { 
-                    align: 'center', 
-                    width: 268,
-                    fillColor: '#000000',
-                    opacity: 0.3
-                });
-            
-            // Título principal
-            doc.fillColor(colores.titulo)
-                .fontSize(16).font('Helvetica-Bold')
-                .text('"EYMI E"', 10, 15, { align: 'center', width: 268 });
-            
-            // Datos de la tienda (sin sombra)
-            doc.fillColor(colores.texto)
+                .fontSize(14).font('Helvetica-Bold')
+                .text('"EYMI E"', { align: 'center' })
                 .fontSize(9).font('Helvetica')
                 .text('Jr. Huayata N 405', { align: 'center' })
                 .text('Ayacucho', { align: 'center' })
-                .moveDown(0.3);
+                .moveDown(0.5);
             
-            // Separador
-            doc.fillColor('#4fc3f7')
-                .fontSize(8)
+            // Línea separadora
+            doc.fontSize(8)
                 .text('─'.repeat(30), { align: 'center' });
-            
-            doc.moveDown(0.3);
+            doc.moveDown(0.5);
             
             // --- DATOS DEL CLIENTE Y VENTA ---
-            doc.fillColor('#ffffff')
-                .fontSize(8).font('Helvetica')
+            doc.fontSize(9).font('Helvetica')
                 .text(`CLIENTE: ${datosVenta.cliente || '___________________'}`, { align: 'center' })
                 .text(`FECHA: ${new Date().toLocaleString()}`, { align: 'center' })
                 .text(`ATENDIDO POR: ${datosVenta.vendedor || '___________________'}`, { align: 'center' });
             
+            doc.moveDown(0.5);
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
             doc.moveDown(0.3);
-            doc.fillColor('#4fc3f7')
-                .fontSize(8)
-                .text('─'.repeat(30), { align: 'center' });
-            doc.moveDown(0.2);
             
             // --- ENCABEZADOS DE PRODUCTOS ---
-            doc.fillColor('#ffffff')
-                .fontSize(8).font('Helvetica-Bold')
+            doc.fontSize(9).font('Helvetica-Bold')
                 .text('CANT', 30, doc.y, { width: 30, align: 'center' })
                 .text('PRODUCTO', 65, doc.y, { width: 100, align: 'center' })
                 .text('TOTAL', 170, doc.y, { width: 60, align: 'center' });
             
-            doc.moveDown(0.2);
-            doc.fillColor('#4fc3f7')
-                .fontSize(7)
-                .text('─'.repeat(30), { align: 'center' });
-            doc.moveDown(0.2);
+            doc.moveDown(0.3);
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            doc.moveDown(0.3);
             
             // --- PRODUCTOS ---
-            doc.fillColor('#e0e0e0')
-                .fontSize(8).font('Helvetica');
+            doc.fontSize(9).font('Helvetica');
             let total = 0;
             
             const productosMostrar = datosVenta.productos.slice(0, 8);
@@ -404,69 +328,56 @@ async function generarTicketVenta(datosVenta) {
                 doc.text(`${item.cantidad}`, 30, doc.y, { width: 30, align: 'center' })
                     .text(nombreCorto, 65, doc.y, { width: 100, align: 'center' })
                     .text(`S/.${subtotal.toFixed(2)}`, 170, doc.y, { width: 60, align: 'center' });
-                doc.moveDown(0.2);
+                doc.moveDown(0.3);
             });
             
             if (datosVenta.productos.length > 8) {
                 doc.text(`... y ${datosVenta.productos.length - 8} mas`, 10, doc.y, { 
                     width: 268, 
-                    align: 'center',
-                    fillColor: '#78909c'
+                    align: 'center' 
                 });
-                doc.moveDown(0.2);
+                doc.moveDown(0.3);
             }
             
-            doc.moveDown(0.2);
-            doc.fillColor('#4fc3f7')
-                .fontSize(7)
-                .text('─'.repeat(30), { align: 'center' });
-            doc.moveDown(0.2);
+            doc.moveDown(0.3);
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            doc.moveDown(0.3);
             
             // --- TOTALES ---
             const totalConDescuento = datosVenta.totalConDescuento || total;
             
-            doc.fillColor('#bdbdbd')
-                .fontSize(9).font('Helvetica')
+            doc.fontSize(9).font('Helvetica')
                 .text(`SUBTOTAL:`, 30, doc.y, { width: 100, align: 'center' })
                 .text(`S/.${total.toFixed(2)}`, 150, doc.y, { width: 80, align: 'center' });
             
             doc.moveDown(0.3);
             
-            // Total resaltado
-            doc.fillColor('#ffd54f')
-                .fontSize(11).font('Helvetica-Bold')
+            // Total en negrita
+            doc.fontSize(10).font('Helvetica-Bold')
                 .text(`TOTAL:`, 30, doc.y, { width: 100, align: 'center' })
                 .text(`S/.${totalConDescuento.toFixed(2)}`, 150, doc.y, { width: 80, align: 'center' });
             
             doc.moveDown(0.3);
-            doc.fillColor('#4fc3f7')
-                .fontSize(7)
-                .text('─'.repeat(30), { align: 'center' });
-            doc.moveDown(0.2);
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            doc.moveDown(0.3);
             
             // --- PAGO ---
-            doc.fillColor('#ffffff')
-                .fontSize(9).font('Helvetica')
+            doc.fontSize(9).font('Helvetica')
                 .text(`PAGO: ${datosVenta.metodoPago.toUpperCase()}`, { align: 'center' });
             
             doc.moveDown(0.3);
-            doc.fillColor('#4fc3f7')
-                .fontSize(7)
-                .text('─'.repeat(30), { align: 'center' });
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
             doc.moveDown(0.3);
             
             // --- MENSAJE FINAL ---
-            doc.fillColor('#ffd54f')
-                .fontSize(11).font('Helvetica-Bold')
+            doc.fontSize(10).font('Helvetica-Bold')
                 .text('GRACIAS POR SU COMPRA!', { align: 'center' });
             
-            doc.fillColor('#e0e0e0')
-                .fontSize(10).font('Helvetica')
+            doc.fontSize(9).font('Helvetica')
                 .text('VUELVA PRONTO!', { align: 'center' });
             
             doc.moveDown(0.2);
-            doc.fillColor('#78909c')
-                .fontSize(7).font('Helvetica')
+            doc.fontSize(7).font('Helvetica')
                 .text('Comparta este ticket por WhatsApp', { align: 'center' });
             
             doc.end();
@@ -879,8 +790,7 @@ bot.on('text', async (ctx) => {
                 productos: estado.carrito.map(item => ({
                     nombre: item.nombre,
                     cantidad: item.cantidad,
-                    precio: item.precio
-                })),
+                    precio: item.precio                })),
                 total: totalOriginal,
                 totalConDescuento: totalVenta,
                 descuento: totalAhorro,
