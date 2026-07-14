@@ -259,7 +259,7 @@ function mostrarMenuPrincipal(ctx) {
 }
 
 // ==========================================
-// FUNCIÓN PARA GENERAR TICKET PDF (SIN EMOJIS)
+// FUNCIÓN PARA GENERAR TICKET PDF (FORMATO TIENDA)
 // ==========================================
 
 async function generarTicketVenta(datosVenta) {
@@ -277,51 +277,40 @@ async function generarTicketVenta(datosVenta) {
                 resolve(pdfData);
             });
             
-            // --- TÍTULO ---
+            // --- ENCABEZADO TIENDA ---
             doc.fontSize(14).font('Helvetica-Bold')
-                .text('FERRETERIA LM', { align: 'center' })
-                .fontSize(10).font('Helvetica')
-                .text('RUC: 20601234567', { align: 'center' })
-                .text('Av. Principal 123 - Lima', { align: 'center' })
-                .text('Tel: 987-654-321', { align: 'center' })
-                .moveDown();
+                .text('"EYMI E"', { align: 'center' })
+                .fontSize(9).font('Helvetica')
+                .text('Jr. Huayata N° 405', { align: 'center' })
+                .text('Ayacucho', { align: 'center' })
+                .moveDown(0.5);
             
             // Separador
-            doc.fontSize(8).text('-'.repeat(30), { align: 'center' });
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
             doc.moveDown(0.5);
             
-            // --- DATOS DEL CLIENTE ---
-            doc.fontSize(10).font('Helvetica-Bold')
-                .text('DATOS DEL CLIENTE', { align: 'center' })
-                .fontSize(9).font('Helvetica');
-            
-            doc.text(`Cliente: ${datosVenta.cliente || 'Cliente'}`);
-            if (datosVenta.dni && datosVenta.dni !== '-') doc.text(`DNI: ${datosVenta.dni}`);
-            if (datosVenta.ruc && datosVenta.ruc !== '-') doc.text(`RUC: ${datosVenta.ruc}`);
-            if (datosVenta.telefono && datosVenta.telefono !== '-') doc.text(`Telefono: ${datosVenta.telefono}`);
+            // --- DATOS DEL CLIENTE Y VENTA ---
+            doc.fontSize(9).font('Helvetica')
+                .text(`CLIENTE: ${datosVenta.cliente || '___________________'}`, { align: 'left' })
+                .text(`FECHA: ${new Date().toLocaleString()}`, { align: 'left' })
+                .text(`ATENDIDO POR: ${datosVenta.vendedor || '___________________'}`, { align: 'left' });
             
             doc.moveDown(0.5);
-            doc.fontSize(8).text('-'.repeat(30), { align: 'center' });
-            doc.moveDown(0.5);
-            
-            // --- DETALLE DE VENTA ---
-            doc.fontSize(10).font('Helvetica-Bold')
-                .text('DETALLE DE VENTA', { align: 'center' })
-                .fontSize(8).font('Helvetica');
-            
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
             doc.moveDown(0.3);
             
-            // Encabezados
-            doc.fontSize(8).font('Helvetica-Bold')
-                .text('Cant', 10, doc.y, { width: 30 })
-                .text('Producto', 40, doc.y, { width: 100 })
-                .text('P.Unit', 140, doc.y, { width: 45, align: 'right' })
-                .text('Subtotal', 185, doc.y, { width: 55, align: 'right' });
+            // --- ENCABEZADOS DE PRODUCTOS ---
+            doc.fontSize(9).font('Helvetica-Bold')
+                .text('CANT', 10, doc.y, { width: 30 })
+                .text('PRODUCTO', 40, doc.y, { width: 100 })
+                .text('TOTAL', 140, doc.y, { width: 100, align: 'right' });
             
             doc.moveDown(0.3);
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            doc.moveDown(0.3);
             
-            // Productos
-            doc.fontSize(8).font('Helvetica');
+            // --- PRODUCTOS ---
+            doc.fontSize(9).font('Helvetica');
             let total = 0;
             
             const productosMostrar = datosVenta.productos.slice(0, 8);
@@ -332,8 +321,7 @@ async function generarTicketVenta(datosVenta) {
                 
                 doc.text(`${item.cantidad}`, 10, doc.y, { width: 30 })
                     .text(nombreCorto, 40, doc.y, { width: 100 })
-                    .text(`${item.precio.toFixed(2)}`, 140, doc.y, { width: 45, align: 'right' })
-                    .text(`${subtotal.toFixed(2)}`, 185, doc.y, { width: 55, align: 'right' });
+                    .text(`S/.${subtotal.toFixed(2)}`, 140, doc.y, { width: 100, align: 'right' });
                 doc.moveDown(0.3);
             });
             
@@ -342,8 +330,8 @@ async function generarTicketVenta(datosVenta) {
                 doc.moveDown(0.3);
             }
             
-            doc.moveDown(0.5);
-            doc.fontSize(8).text('-'.repeat(30), { align: 'center' });
+            doc.moveDown(0.3);
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
             doc.moveDown(0.3);
             
             // --- TOTALES ---
@@ -351,36 +339,41 @@ async function generarTicketVenta(datosVenta) {
             const descuento = datosVenta.descuento || 0;
             
             doc.fontSize(9).font('Helvetica');
-            doc.text(`Total: S/ ${total.toFixed(2)}`, 120, doc.y, { width: 130, align: 'right' });
+            doc.text(`SUBTOTAL:`, 10, doc.y, { width: 80 })
+                .text(`S/.${total.toFixed(2)}`, 140, doc.y, { width: 100, align: 'right' });
             
             if (descuento > 0) {
                 doc.moveDown(0.3);
-                doc.text(`Descuento: -S/ ${descuento.toFixed(2)}`, 120, doc.y, { width: 130, align: 'right' });
+                doc.text(`DESCUENTO:`, 10, doc.y, { width: 80 })
+                    .text(`-S/.${descuento.toFixed(2)}`, 140, doc.y, { width: 100, align: 'right' });
             }
             
-            if (totalConDescuento !== total) {
-                doc.moveDown(0.3);
-                doc.fontSize(10).font('Helvetica-Bold')
-                    .text(`TOTAL PAGAR: S/ ${totalConDescuento.toFixed(2)}`, 90, doc.y, { width: 160, align: 'right' });
-            }
+            doc.moveDown(0.3);
+            doc.fontSize(10).font('Helvetica-Bold')
+                .text(`TOTAL:`, 10, doc.y, { width: 80 })
+                .text(`S/.${totalConDescuento.toFixed(2)}`, 140, doc.y, { width: 100, align: 'right' });
             
             doc.moveDown(0.5);
-            
-            // --- PIE ---
-            doc.fontSize(9).font('Helvetica')
-                .text(`Pago: ${datosVenta.metodoPago}`, { align: 'center' })
-                .text(`Atendio: ${datosVenta.vendedor}`, { align: 'center' })
-                .text(`${new Date().toLocaleString()}`, { align: 'center' });
-            
-            doc.moveDown(0.5);
-            doc.fontSize(8).text('-'.repeat(30), { align: 'center' });
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
             doc.moveDown(0.3);
             
+            // --- PAGO ---
+            doc.fontSize(9).font('Helvetica')
+                .text(`PAGO: ${datosVenta.metodoPago.toUpperCase()}`, { align: 'center' });
+            
+            doc.moveDown(0.5);
+            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            doc.moveDown(0.3);
+            
+            // --- MENSAJE FINAL ---
             doc.fontSize(10).font('Helvetica-Bold')
-                .text('GRACIAS POR SU COMPRA!', { align: 'center' })
-                .fontSize(8).font('Helvetica')
-                .text('Vuelva pronto!', { align: 'center' })
-                .text('Comparta este ticket por WhatsApp', { align: 'center', fontSize: 7 });
+                .text('¡GRACIAS POR SU COMPRA!', { align: 'center' })
+                .fontSize(9).font('Helvetica')
+                .text('¡VUELVA PRONTO!', { align: 'center' });
+            
+            doc.moveDown(0.3);
+            doc.fontSize(7).font('Helvetica')
+                .text('Comparta este ticket por WhatsApp', { align: 'center' });
             
             doc.end();
         } catch (error) {
@@ -736,13 +729,13 @@ bot.on('text', async (ctx) => {
         
         const partes = texto.split(/[,;]/).map(p => p.trim());
         const cliente = {
-            nombre: partes[0] || 'Cliente',
+            nombre: partes[0] || '___________________',
             dni: partes[1] || '-',
             ruc: partes[2] || '-',
             telefono: partes[3] || '-'
         };
         
-        if (cliente.nombre === '-') {
+        if (cliente.nombre === '___________________') {
             return ctx.reply("❌ El nombre del cliente es obligatorio. Usa el formato: `Nombre, DNI, RUC, Teléfono`");
         }
         
