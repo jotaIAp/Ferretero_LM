@@ -267,7 +267,7 @@ async function generarTicketVenta(datosVenta) {
         try {
             const doc = new PDFDocument({
                 size: [288, 420],
-                margin: 10
+                margin: 15
             });
             
             const buffers = [];
@@ -277,6 +277,10 @@ async function generarTicketVenta(datosVenta) {
                 resolve(pdfData);
             });
             
+            const pageWidth = 258; // 288 - (15*2)
+            const centerX = 144; // 288 / 2
+            const lineY = (y) => { doc.moveTo(15, y); doc.lineTo(273, y); doc.stroke(); };
+            
             // --- TICKET BLANCO Y NEGRO ---
             // Fondo blanco
             doc.rect(0, 0, 288, 420).fill('#ffffff');
@@ -284,39 +288,51 @@ async function generarTicketVenta(datosVenta) {
             // --- ENCABEZADO TIENDA ---
             doc.fillColor('#000000')
                 .fontSize(14).font('Helvetica-Bold')
-                .text('"EYMI E"', { align: 'center' })
+                .text('"EYMI E"', { align: 'center', width: pageWidth })
                 .fontSize(9).font('Helvetica')
-                .text('Jr. Huayata N 405', { align: 'center' })
-                .text('Ayacucho', { align: 'center' })
+                .text('Jr. Huayata N 405', { align: 'center', width: pageWidth })
+                .text('Ayacucho', { align: 'center', width: pageWidth })
                 .moveDown(0.5);
             
-            // Línea separadora
-            doc.fontSize(8)
-                .text('─'.repeat(30), { align: 'center' });
+            // Línea separadora DIBUJADA (centrada)
+            const y1 = doc.y;
+            doc.moveTo(20, y1);
+            doc.lineTo(268, y1);
+            doc.lineWidth(1);
+            doc.stroke();
             doc.moveDown(0.5);
             
             // --- DATOS DEL CLIENTE Y VENTA ---
-            doc.fontSize(9).font('Helvetica')
-                .text(`CLIENTE: ${datosVenta.cliente || '___________________'}`, { align: 'center' })
-                .text(`FECHA: ${new Date().toLocaleString()}`, { align: 'center' })
-                .text(`ATENDIDO POR: ${datosVenta.vendedor || '___________________'}`, { align: 'center' });
+            doc.fillColor('#000000')
+                .fontSize(9).font('Helvetica')
+                .text(`CLIENTE: ${datosVenta.cliente || '___________________'}`, { align: 'center', width: pageWidth })
+                .text(`FECHA: ${new Date().toLocaleString()}`, { align: 'center', width: pageWidth })
+                .text(`ATENDIDO POR: ${datosVenta.vendedor || '___________________'}`, { align: 'center', width: pageWidth });
             
             doc.moveDown(0.5);
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            const y2 = doc.y;
+            doc.moveTo(20, y2);
+            doc.lineTo(268, y2);
+            doc.stroke();
             doc.moveDown(0.3);
             
             // --- ENCABEZADOS DE PRODUCTOS ---
-            doc.fontSize(9).font('Helvetica-Bold')
-                .text('CANT', 30, doc.y, { width: 30, align: 'center' })
-                .text('PRODUCTO', 65, doc.y, { width: 100, align: 'center' })
-                .text('TOTAL', 170, doc.y, { width: 60, align: 'center' });
+            doc.fillColor('#000000')
+                .fontSize(9).font('Helvetica-Bold')
+                .text('CANT', { align: 'center', width: 50 })
+                .text('PRODUCTO', { align: 'center', width: 110 })
+                .text('TOTAL', { align: 'center', width: 60 });
             
             doc.moveDown(0.3);
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            const y3 = doc.y;
+            doc.moveTo(20, y3);
+            doc.lineTo(268, y3);
+            doc.stroke();
             doc.moveDown(0.3);
             
             // --- PRODUCTOS ---
-            doc.fontSize(9).font('Helvetica');
+            doc.fillColor('#000000')
+                .fontSize(9).font('Helvetica');
             let total = 0;
             
             const productosMostrar = datosVenta.productos.slice(0, 8);
@@ -325,60 +341,67 @@ async function generarTicketVenta(datosVenta) {
                 total += subtotal;
                 const nombreCorto = item.nombre.length > 16 ? item.nombre.substring(0, 15) + '..' : item.nombre;
                 
-                doc.text(`${item.cantidad}`, 30, doc.y, { width: 30, align: 'center' })
-                    .text(nombreCorto, 65, doc.y, { width: 100, align: 'center' })
-                    .text(`S/.${subtotal.toFixed(2)}`, 170, doc.y, { width: 60, align: 'center' });
-                doc.moveDown(0.3);
+                doc.text(`${item.cantidad}`, { align: 'center', width: 50 })
+                    .text(nombreCorto, { align: 'center', width: 110 })
+                    .text(`S/.${subtotal.toFixed(2)}`, { align: 'center', width: 60 });
+                doc.moveDown(0.25);
             });
             
             if (datosVenta.productos.length > 8) {
-                doc.text(`... y ${datosVenta.productos.length - 8} mas`, 10, doc.y, { 
-                    width: 268, 
-                    align: 'center' 
-                });
+                doc.text(`... y ${datosVenta.productos.length - 8} mas`, { align: 'center', width: pageWidth });
                 doc.moveDown(0.3);
             }
             
             doc.moveDown(0.3);
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            const y4 = doc.y;
+            doc.moveTo(20, y4);
+            doc.lineTo(268, y4);
+            doc.stroke();
             doc.moveDown(0.3);
             
             // --- TOTALES ---
             const totalConDescuento = datosVenta.totalConDescuento || total;
             
-            doc.fontSize(9).font('Helvetica')
-                .text(`SUBTOTAL:`, 30, doc.y, { width: 100, align: 'center' })
-                .text(`S/.${total.toFixed(2)}`, 150, doc.y, { width: 80, align: 'center' });
+            doc.fillColor('#000000')
+                .fontSize(9).font('Helvetica')
+                .text(`SUBTOTAL: S/.${total.toFixed(2)}`, { align: 'center', width: pageWidth });
             
-            doc.moveDown(0.3);
+            doc.moveDown(0.25);
             
             // Total en negrita
             doc.fontSize(10).font('Helvetica-Bold')
-                .text(`TOTAL:`, 30, doc.y, { width: 100, align: 'center' })
-                .text(`S/.${totalConDescuento.toFixed(2)}`, 150, doc.y, { width: 80, align: 'center' });
+                .text(`TOTAL: S/.${totalConDescuento.toFixed(2)}`, { align: 'center', width: pageWidth });
             
             doc.moveDown(0.3);
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            const y5 = doc.y;
+            doc.moveTo(20, y5);
+            doc.lineTo(268, y5);
+            doc.stroke();
             doc.moveDown(0.3);
             
             // --- PAGO ---
-            doc.fontSize(9).font('Helvetica')
-                .text(`PAGO: ${datosVenta.metodoPago.toUpperCase()}`, { align: 'center' });
+            doc.fillColor('#000000')
+                .fontSize(9).font('Helvetica')
+                .text(`PAGO: ${datosVenta.metodoPago.toUpperCase()}`, { align: 'center', width: pageWidth });
             
             doc.moveDown(0.3);
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            const y6 = doc.y;
+            doc.moveTo(20, y6);
+            doc.lineTo(268, y6);
+            doc.stroke();
             doc.moveDown(0.3);
             
             // --- MENSAJE FINAL ---
-            doc.fontSize(10).font('Helvetica-Bold')
-                .text('GRACIAS POR SU COMPRA!', { align: 'center' });
+            doc.fillColor('#000000')
+                .fontSize(10).font('Helvetica-Bold')
+                .text('GRACIAS POR SU COMPRA!', { align: 'center', width: pageWidth });
             
             doc.fontSize(9).font('Helvetica')
-                .text('VUELVA PRONTO!', { align: 'center' });
+                .text('VUELVA PRONTO!', { align: 'center', width: pageWidth });
             
             doc.moveDown(0.2);
             doc.fontSize(7).font('Helvetica')
-                .text('Comparta este ticket por WhatsApp', { align: 'center' });
+                .text('Comparta este ticket por WhatsApp', { align: 'center', width: pageWidth });
             
             doc.end();
         } catch (error) {
