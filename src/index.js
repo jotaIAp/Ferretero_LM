@@ -266,8 +266,8 @@ async function generarTicketVenta(datosVenta) {
     return new Promise((resolve, reject) => {
         try {
             const doc = new PDFDocument({
-                size: [288, 400],
-                margin: 15
+                size: [288, 420],
+                margin: 10
             });
             
             const buffers = [];
@@ -277,102 +277,196 @@ async function generarTicketVenta(datosVenta) {
                 resolve(pdfData);
             });
             
+            // --- FONDO CON COLORES BLUR/DIFUMINADO ---
+            // Rectángulo base negro
+            doc.rect(0, 0, 288, 420)
+                .fill('#0a0a0a');
+            
+            // Círculo 1: Azul difuminado (superior izquierdo)
+            for (let i = 0; i < 3; i++) {
+                const opacidad = 0.3 - (i * 0.08);
+                const radio = 180 - (i * 30);
+                doc.fillOpacity(opacidad);
+                doc.fillColor('#1a237e');
+                doc.circle(30 + i * 20, 20 + i * 15, radio)
+                    .fill();
+            }
+            
+            // Círculo 2: Celeste difuminado (superior derecho)
+            for (let i = 0; i < 3; i++) {
+                const opacidad = 0.25 - (i * 0.07);
+                const radio = 150 - (i * 25);
+                doc.fillOpacity(opacidad);
+                doc.fillColor('#4fc3f7');
+                doc.circle(250 - i * 20, 30 + i * 10, radio)
+                    .fill();
+            }
+            
+            // Círculo 3: Azul más intenso (centro)
+            for (let i = 0; i < 2; i++) {
+                const opacidad = 0.2 - (i * 0.08);
+                const radio = 120 - (i * 20);
+                doc.fillOpacity(opacidad);
+                doc.fillColor('#0d47a1');
+                doc.circle(144, 210 + i * 20, radio)
+                    .fill();
+            }
+            
+            // Círculo 4: Celeste claro (inferior)
+            for (let i = 0; i < 2; i++) {
+                const opacidad = 0.15 - (i * 0.05);
+                const radio = 130 - (i * 20);
+                doc.fillOpacity(opacidad);
+                doc.fillColor('#80deea');
+                doc.circle(30 + i * 30, 380 - i * 20, radio)
+                    .fill();
+            }
+            
+            // Restaurar opacidad
+            doc.fillOpacity(1);
+            
+            // --- TEXTO CON SOMBRA (efecto brillo) ---
+            const sombraOffset = 1;
+            const colores = {
+                titulo: '#ffffff',
+                texto: '#e0e0e0',
+                resaltado: '#4fc3f7',
+                total: '#ffd54f'
+            };
+            
             // --- ENCABEZADO TIENDA ---
-            doc.fontSize(14).font('Helvetica-Bold')
-                .text('"EYMI E"', { align: 'center' })
+            // Sombra del título
+            doc.fillColor('#000000')
+                .fontSize(16).font('Helvetica-Bold')
+                .text('"EYMI E"', 10 + sombraOffset, 15 + sombraOffset, { 
+                    align: 'center', 
+                    width: 268,
+                    fillColor: '#000000',
+                    opacity: 0.3
+                });
+            
+            // Título principal
+            doc.fillColor(colores.titulo)
+                .fontSize(16).font('Helvetica-Bold')
+                .text('"EYMI E"', 10, 15, { align: 'center', width: 268 });
+            
+            // Datos de la tienda (sin sombra)
+            doc.fillColor(colores.texto)
                 .fontSize(9).font('Helvetica')
-                .text('Jr. Huayata N° 405', { align: 'center' })
+                .text('Jr. Huayata N 405', { align: 'center' })
                 .text('Ayacucho', { align: 'center' })
-                .moveDown(0.5);
+                .moveDown(0.3);
             
             // Separador
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
-            doc.moveDown(0.5);
+            doc.fillColor('#4fc3f7')
+                .fontSize(8)
+                .text('─'.repeat(30), { align: 'center' });
+            
+            doc.moveDown(0.3);
             
             // --- DATOS DEL CLIENTE Y VENTA ---
-            doc.fontSize(9).font('Helvetica')
-                .text(`CLIENTE: ${datosVenta.cliente || '___________________'}`, { align: 'left' })
-                .text(`FECHA: ${new Date().toLocaleString()}`, { align: 'left' })
-                .text(`ATENDIDO POR: ${datosVenta.vendedor || '___________________'}`, { align: 'left' });
+            doc.fillColor('#ffffff')
+                .fontSize(8).font('Helvetica')
+                .text(`CLIENTE: ${datosVenta.cliente || '___________________'}`, { align: 'center' })
+                .text(`FECHA: ${new Date().toLocaleString()}`, { align: 'center' })
+                .text(`ATENDIDO POR: ${datosVenta.vendedor || '___________________'}`, { align: 'center' });
             
-            doc.moveDown(0.5);
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
             doc.moveDown(0.3);
+            doc.fillColor('#4fc3f7')
+                .fontSize(8)
+                .text('─'.repeat(30), { align: 'center' });
+            doc.moveDown(0.2);
             
             // --- ENCABEZADOS DE PRODUCTOS ---
-            doc.fontSize(9).font('Helvetica-Bold')
-                .text('CANT', 10, doc.y, { width: 30 })
-                .text('PRODUCTO', 40, doc.y, { width: 100 })
-                .text('TOTAL', 140, doc.y, { width: 100, align: 'right' });
+            doc.fillColor('#ffffff')
+                .fontSize(8).font('Helvetica-Bold')
+                .text('CANT', 30, doc.y, { width: 30, align: 'center' })
+                .text('PRODUCTO', 65, doc.y, { width: 100, align: 'center' })
+                .text('TOTAL', 170, doc.y, { width: 60, align: 'center' });
             
-            doc.moveDown(0.3);
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
-            doc.moveDown(0.3);
+            doc.moveDown(0.2);
+            doc.fillColor('#4fc3f7')
+                .fontSize(7)
+                .text('─'.repeat(30), { align: 'center' });
+            doc.moveDown(0.2);
             
             // --- PRODUCTOS ---
-            doc.fontSize(9).font('Helvetica');
+            doc.fillColor('#e0e0e0')
+                .fontSize(8).font('Helvetica');
             let total = 0;
             
             const productosMostrar = datosVenta.productos.slice(0, 8);
             productosMostrar.forEach((item) => {
                 const subtotal = item.precio * item.cantidad;
                 total += subtotal;
-                const nombreCorto = item.nombre.length > 16 ? item.nombre.substring(0, 15) + '...' : item.nombre;
+                const nombreCorto = item.nombre.length > 16 ? item.nombre.substring(0, 15) + '..' : item.nombre;
                 
-                doc.text(`${item.cantidad}`, 10, doc.y, { width: 30 })
-                    .text(nombreCorto, 40, doc.y, { width: 100 })
-                    .text(`S/.${subtotal.toFixed(2)}`, 140, doc.y, { width: 100, align: 'right' });
-                doc.moveDown(0.3);
+                doc.text(`${item.cantidad}`, 30, doc.y, { width: 30, align: 'center' })
+                    .text(nombreCorto, 65, doc.y, { width: 100, align: 'center' })
+                    .text(`S/.${subtotal.toFixed(2)}`, 170, doc.y, { width: 60, align: 'center' });
+                doc.moveDown(0.2);
             });
             
             if (datosVenta.productos.length > 8) {
-                doc.text(`... y ${datosVenta.productos.length - 8} mas`, 10, doc.y, { width: 200, align: 'center' });
-                doc.moveDown(0.3);
+                doc.text(`... y ${datosVenta.productos.length - 8} mas`, 10, doc.y, { 
+                    width: 268, 
+                    align: 'center',
+                    fillColor: '#78909c'
+                });
+                doc.moveDown(0.2);
             }
             
-            doc.moveDown(0.3);
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
-            doc.moveDown(0.3);
+            doc.moveDown(0.2);
+            doc.fillColor('#4fc3f7')
+                .fontSize(7)
+                .text('─'.repeat(30), { align: 'center' });
+            doc.moveDown(0.2);
             
             // --- TOTALES ---
             const totalConDescuento = datosVenta.totalConDescuento || total;
-            const descuento = datosVenta.descuento || 0;
             
-            doc.fontSize(9).font('Helvetica');
-            doc.text(`SUBTOTAL:`, 10, doc.y, { width: 80 })
-                .text(`S/.${total.toFixed(2)}`, 140, doc.y, { width: 100, align: 'right' });
-            
-            if (descuento > 0) {
-                doc.moveDown(0.3);
-                doc.text(`DESCUENTO:`, 10, doc.y, { width: 80 })
-                    .text(`-S/.${descuento.toFixed(2)}`, 140, doc.y, { width: 100, align: 'right' });
-            }
+            doc.fillColor('#bdbdbd')
+                .fontSize(9).font('Helvetica')
+                .text(`SUBTOTAL:`, 30, doc.y, { width: 100, align: 'center' })
+                .text(`S/.${total.toFixed(2)}`, 150, doc.y, { width: 80, align: 'center' });
             
             doc.moveDown(0.3);
-            doc.fontSize(10).font('Helvetica-Bold')
-                .text(`TOTAL:`, 10, doc.y, { width: 80 })
-                .text(`S/.${totalConDescuento.toFixed(2)}`, 140, doc.y, { width: 100, align: 'right' });
             
-            doc.moveDown(0.5);
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            // Total resaltado
+            doc.fillColor('#ffd54f')
+                .fontSize(11).font('Helvetica-Bold')
+                .text(`TOTAL:`, 30, doc.y, { width: 100, align: 'center' })
+                .text(`S/.${totalConDescuento.toFixed(2)}`, 150, doc.y, { width: 80, align: 'center' });
+            
             doc.moveDown(0.3);
+            doc.fillColor('#4fc3f7')
+                .fontSize(7)
+                .text('─'.repeat(30), { align: 'center' });
+            doc.moveDown(0.2);
             
             // --- PAGO ---
-            doc.fontSize(9).font('Helvetica')
+            doc.fillColor('#ffffff')
+                .fontSize(9).font('Helvetica')
                 .text(`PAGO: ${datosVenta.metodoPago.toUpperCase()}`, { align: 'center' });
             
-            doc.moveDown(0.5);
-            doc.fontSize(8).text('─'.repeat(30), { align: 'center' });
+            doc.moveDown(0.3);
+            doc.fillColor('#4fc3f7')
+                .fontSize(7)
+                .text('─'.repeat(30), { align: 'center' });
             doc.moveDown(0.3);
             
             // --- MENSAJE FINAL ---
-            doc.fontSize(10).font('Helvetica-Bold')
-                .text('¡GRACIAS POR SU COMPRA!', { align: 'center' })
-                .fontSize(9).font('Helvetica')
-                .text('¡VUELVA PRONTO!', { align: 'center' });
+            doc.fillColor('#ffd54f')
+                .fontSize(11).font('Helvetica-Bold')
+                .text('GRACIAS POR SU COMPRA!', { align: 'center' });
             
-            doc.moveDown(0.3);
-            doc.fontSize(7).font('Helvetica')
+            doc.fillColor('#e0e0e0')
+                .fontSize(10).font('Helvetica')
+                .text('VUELVA PRONTO!', { align: 'center' });
+            
+            doc.moveDown(0.2);
+            doc.fillColor('#78909c')
+                .fontSize(7).font('Helvetica')
                 .text('Comparta este ticket por WhatsApp', { align: 'center' });
             
             doc.end();
