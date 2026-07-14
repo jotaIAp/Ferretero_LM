@@ -261,7 +261,6 @@ function mostrarMenuPrincipal(ctx) {
 // ==========================================
 // FUNCIÓN PARA GENERAR TICKET PDF (BLANCO Y NEGRO, SOLO LÍNEAS)
 // ==========================================
-
 async function generarTicketVenta(datosVenta) {
     return new Promise((resolve, reject) => {
         try {
@@ -277,13 +276,7 @@ async function generarTicketVenta(datosVenta) {
                 resolve(pdfData);
             });
             
-            const pageWidth = 258; // 288 - (15*2)
-            const centerX = 144; // 288 / 2
-            const lineY = (y) => { doc.moveTo(15, y); doc.lineTo(273, y); doc.stroke(); };
-            
-            // --- TICKET BLANCO Y NEGRO ---
-            // Fondo blanco
-            doc.rect(0, 0, 288, 420).fill('#ffffff');
+            const pageWidth = 258;
             
             // --- ENCABEZADO TIENDA ---
             doc.fillColor('#000000')
@@ -294,7 +287,7 @@ async function generarTicketVenta(datosVenta) {
                 .text('Ayacucho', { align: 'center', width: pageWidth })
                 .moveDown(0.5);
             
-            // Línea separadora DIBUJADA (centrada)
+            // Línea separadora
             const y1 = doc.y;
             doc.moveTo(20, y1);
             doc.lineTo(268, y1);
@@ -302,7 +295,7 @@ async function generarTicketVenta(datosVenta) {
             doc.stroke();
             doc.moveDown(0.5);
             
-            // --- DATOS DEL CLIENTE Y VENTA ---
+            // --- DATOS DEL CLIENTE ---
             doc.fillColor('#000000')
                 .fontSize(9).font('Helvetica')
                 .text(`CLIENTE: ${datosVenta.cliente || '___________________'}`, { align: 'center', width: pageWidth })
@@ -316,12 +309,12 @@ async function generarTicketVenta(datosVenta) {
             doc.stroke();
             doc.moveDown(0.3);
             
-            // --- ENCABEZADOS DE PRODUCTOS ---
+            // --- ENCABEZADOS PRODUCTOS ---
             doc.fillColor('#000000')
                 .fontSize(9).font('Helvetica-Bold')
-                .text('CANT', { align: 'center', width: 50 })
-                .text('PRODUCTO', { align: 'center', width: 110 })
-                .text('TOTAL', { align: 'center', width: 60 });
+                .text('CANT', 20, doc.y, { width: 40, align: 'center' })
+                .text('PRODUCTO', 60, doc.y, { width: 120, align: 'center' })
+                .text('TOTAL', 180, doc.y, { width: 80, align: 'center' });
             
             doc.moveDown(0.3);
             const y3 = doc.y;
@@ -341,9 +334,9 @@ async function generarTicketVenta(datosVenta) {
                 total += subtotal;
                 const nombreCorto = item.nombre.length > 16 ? item.nombre.substring(0, 15) + '..' : item.nombre;
                 
-                doc.text(`${item.cantidad}`, { align: 'center', width: 50 })
-                    .text(nombreCorto, { align: 'center', width: 110 })
-                    .text(`S/.${subtotal.toFixed(2)}`, { align: 'center', width: 60 });
+                doc.text(`${item.cantidad}`, 20, doc.y, { width: 40, align: 'center' })
+                    .text(nombreCorto, 60, doc.y, { width: 120, align: 'center' })
+                    .text(`S/.${subtotal.toFixed(2)}`, 180, doc.y, { width: 80, align: 'center' });
                 doc.moveDown(0.25);
             });
             
@@ -368,7 +361,6 @@ async function generarTicketVenta(datosVenta) {
             
             doc.moveDown(0.25);
             
-            // Total en negrita
             doc.fontSize(10).font('Helvetica-Bold')
                 .text(`TOTAL: S/.${totalConDescuento.toFixed(2)}`, { align: 'center', width: pageWidth });
             
