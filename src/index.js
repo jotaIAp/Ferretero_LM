@@ -3,9 +3,6 @@ const { createClient } = require('@supabase/supabase-js');
 require('dotenv').config();
 const http = require('http');
 const PDFDocument = require('pdfkit');
-const sharp = require('sharp');
-const fs = require('fs');
-const path = require('path');
 
 // 1. Validar configuraciones
 if (!process.env.TELEGRAM_TOKEN || !process.env.SUPABASE_URL || !process.env.SUPABASE_KEY) {
@@ -262,7 +259,7 @@ function mostrarMenuPrincipal(ctx) {
 }
 
 // ==========================================
-// FUNCIONES PARA GENERAR TICKET PDF
+// FUNCIÓN PARA GENERAR TICKET PDF (SIN EMOJIS)
 // ==========================================
 
 async function generarTicketVenta(datosVenta) {
@@ -280,71 +277,76 @@ async function generarTicketVenta(datosVenta) {
                 resolve(pdfData);
             });
             
-            // Título
+            // --- TÍTULO ---
             doc.fontSize(14).font('Helvetica-Bold')
-                .text('🏪 FERRETERÍA LM', { align: 'center' })
+                .text('FERRETERIA LM', { align: 'center' })
                 .fontSize(10).font('Helvetica')
                 .text('RUC: 20601234567', { align: 'center' })
                 .text('Av. Principal 123 - Lima', { align: 'center' })
                 .text('Tel: 987-654-321', { align: 'center' })
                 .moveDown();
             
-            doc.fontSize(8).text('─'.repeat(28), { align: 'center' });
+            // Separador
+            doc.fontSize(8).text('-'.repeat(30), { align: 'center' });
             doc.moveDown(0.5);
             
-            // Datos del cliente
+            // --- DATOS DEL CLIENTE ---
             doc.fontSize(10).font('Helvetica-Bold')
-                .text('📋 DATOS DEL CLIENTE', { align: 'center' })
+                .text('DATOS DEL CLIENTE', { align: 'center' })
                 .fontSize(9).font('Helvetica');
             
-            if (datosVenta.cliente) doc.text(`Cliente: ${datosVenta.cliente}`);
+            doc.text(`Cliente: ${datosVenta.cliente || 'Cliente'}`);
             if (datosVenta.dni && datosVenta.dni !== '-') doc.text(`DNI: ${datosVenta.dni}`);
             if (datosVenta.ruc && datosVenta.ruc !== '-') doc.text(`RUC: ${datosVenta.ruc}`);
-            if (datosVenta.telefono && datosVenta.telefono !== '-') doc.text(`Teléfono: ${datosVenta.telefono}`);
+            if (datosVenta.telefono && datosVenta.telefono !== '-') doc.text(`Telefono: ${datosVenta.telefono}`);
             
             doc.moveDown(0.5);
-            doc.fontSize(8).text('─'.repeat(28), { align: 'center' });
+            doc.fontSize(8).text('-'.repeat(30), { align: 'center' });
             doc.moveDown(0.5);
             
-            // Detalles de la venta
+            // --- DETALLE DE VENTA ---
             doc.fontSize(10).font('Helvetica-Bold')
-                .text('🛒 DETALLE DE VENTA', { align: 'center' })
+                .text('DETALLE DE VENTA', { align: 'center' })
                 .fontSize(8).font('Helvetica');
             
             doc.moveDown(0.3);
             
+            // Encabezados
             doc.fontSize(8).font('Helvetica-Bold')
                 .text('Cant', 10, doc.y, { width: 30 })
                 .text('Producto', 40, doc.y, { width: 100 })
-                .text('P. Unit', 140, doc.y, { width: 50, align: 'right' })
-                .text('Subtotal', 190, doc.y, { width: 60, align: 'right' });
+                .text('P.Unit', 140, doc.y, { width: 45, align: 'right' })
+                .text('Subtotal', 185, doc.y, { width: 55, align: 'right' });
             
             doc.moveDown(0.3);
             
+            // Productos
             doc.fontSize(8).font('Helvetica');
             let total = 0;
             
-            datosVenta.productos.forEach((item, index) => {
-                if (index >= 8) {
-                    if (index === 8) {
-                        doc.text('... y más', 10, doc.y, { width: 200, align: 'center' });
-                    }
-                    return;
-                }
+            const productosMostrar = datosVenta.productos.slice(0, 8);
+            productosMostrar.forEach((item) => {
                 const subtotal = item.precio * item.cantidad;
                 total += subtotal;
+                const nombreCorto = item.nombre.length > 16 ? item.nombre.substring(0, 15) + '...' : item.nombre;
+                
                 doc.text(`${item.cantidad}`, 10, doc.y, { width: 30 })
-                    .text(`${item.nombre.substring(0, 18)}`, 40, doc.y, { width: 100 })
-                    .text(`S/ ${item.precio.toFixed(2)}`, 140, doc.y, { width: 50, align: 'right' })
-                    .text(`S/ ${subtotal.toFixed(2)}`, 190, doc.y, { width: 60, align: 'right' });
+                    .text(nombreCorto, 40, doc.y, { width: 100 })
+                    .text(`${item.precio.toFixed(2)}`, 140, doc.y, { width: 45, align: 'right' })
+                    .text(`${subtotal.toFixed(2)}`, 185, doc.y, { width: 55, align: 'right' });
                 doc.moveDown(0.3);
             });
             
+            if (datosVenta.productos.length > 8) {
+                doc.text(`... y ${datosVenta.productos.length - 8} mas`, 10, doc.y, { width: 200, align: 'center' });
+                doc.moveDown(0.3);
+            }
+            
             doc.moveDown(0.5);
-            doc.fontSize(8).text('─'.repeat(28), { align: 'center' });
+            doc.fontSize(8).text('-'.repeat(30), { align: 'center' });
             doc.moveDown(0.3);
             
-            // Totales
+            // --- TOTALES ---
             const totalConDescuento = datosVenta.totalConDescuento || total;
             const descuento = datosVenta.descuento || 0;
             
@@ -359,25 +361,26 @@ async function generarTicketVenta(datosVenta) {
             if (totalConDescuento !== total) {
                 doc.moveDown(0.3);
                 doc.fontSize(10).font('Helvetica-Bold')
-                    .text(`TOTAL PAGAR: S/ ${totalConDescuento.toFixed(2)}`, 100, doc.y, { width: 150, align: 'right' });
+                    .text(`TOTAL PAGAR: S/ ${totalConDescuento.toFixed(2)}`, 90, doc.y, { width: 160, align: 'right' });
             }
             
             doc.moveDown(0.5);
             
+            // --- PIE ---
             doc.fontSize(9).font('Helvetica')
-                .text(`💳 Pago: ${datosVenta.metodoPago}`, { align: 'center' })
-                .text(`👤 Atendió: ${datosVenta.vendedor}`, { align: 'center' })
-                .text(`📅 ${new Date().toLocaleString()}`, { align: 'center' });
+                .text(`Pago: ${datosVenta.metodoPago}`, { align: 'center' })
+                .text(`Atendio: ${datosVenta.vendedor}`, { align: 'center' })
+                .text(`${new Date().toLocaleString()}`, { align: 'center' });
             
             doc.moveDown(0.5);
-            doc.fontSize(8).text('─'.repeat(28), { align: 'center' });
+            doc.fontSize(8).text('-'.repeat(30), { align: 'center' });
             doc.moveDown(0.3);
             
             doc.fontSize(10).font('Helvetica-Bold')
-                .text('🎉 GRACIAS POR SU COMPRA', { align: 'center' })
+                .text('GRACIAS POR SU COMPRA!', { align: 'center' })
                 .fontSize(8).font('Helvetica')
-                .text('¡Vuelva pronto!', { align: 'center' })
-                .text('📱 Comparta este ticket por WhatsApp', { align: 'center', fontSize: 7 });
+                .text('Vuelva pronto!', { align: 'center' })
+                .text('Comparta este ticket por WhatsApp', { align: 'center', fontSize: 7 });
             
             doc.end();
         } catch (error) {
@@ -394,7 +397,7 @@ async function enviarTicket(ctx, datosVenta) {
             source: pdfBuffer,
             filename: `ticket_${datosVenta.numero}.pdf`
         }, {
-            caption: `✅ **¡VENTA EXITOSA!**\n📝 Ticket #${datosVenta.numero}\n\n📱 *Comparte este ticket con tu cliente por WhatsApp*`,
+            caption: `✅ **VENTA EXITOSA!**\n📝 Ticket #${datosVenta.numero}\n\n📱 *Comparte este ticket con tu cliente por WhatsApp*`,
             parse_mode: 'Markdown'
         });
         
@@ -984,7 +987,7 @@ bot.on('text', async (ctx) => {
     }
 
     // ==========================================
-    // FLUJO: AGREGAR AL CARRITO CON TODAS LAS OPCIONES (CORREGIDO)
+    // FLUJO: AGREGAR AL CARRITO CON TODAS LAS OPCIONES
     // ==========================================
     if (estado.esperando === 'numero') {
         const textoLimpio = texto.replace(/\s+/g, ' ').trim();
@@ -1184,7 +1187,7 @@ bot.on('text', async (ctx) => {
     }
 
     // ==========================================
-    // 👑 FLUJO ADMIN: REGISTRAR PRODUCTO NUEVO (CON SECCIÓN)
+    // 👑 FLUJO ADMIN: REGISTRAR PRODUCTO NUEVO
     // ==========================================
     if (estado.esperando?.startsWith('agregar_')) {
         if (estado.esperando === 'agregar_nombre') {
