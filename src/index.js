@@ -256,6 +256,10 @@ function mostrarMenuPrincipal(ctx) {
         keyboard.inline_keyboard.push([
             { text: "🔍 Movimientos x Producto", callback_data: "movimientos_producto" }
         ]);
+        keyboard.inline_keyboard.push([
+            { text: "🧾 Historial de Ventas", callback_data: "historial_ventas" },
+            { text: "🏆 Top Productos", callback_data: "top_productos" }
+        ]);
     }
     
     keyboard.inline_keyboard.push([{ text: "❌ Cerrar Sesión", callback_data: "cerrar_sesion" }]);
@@ -399,28 +403,11 @@ async function generarTicketVenta(datosVenta) {
             drawLine();
             
             // ==========================================
-            // 4. TOTALES
+            // 4. TOTAL
             // ==========================================
             const totalConDescuento = datosVenta.totalConDescuento || total;
-            const descuento = datosVenta.descuento || 0;
-            
-            // Subtotal
-            doc.fillColor('#1a1a1a');
-            doc.fontSize(9).font('Helvetica');
-            doc.text('SUBTOTAL:', 120, doc.y, { width: 80, align: 'right' });
-            doc.text(`S/ ${total.toFixed(2)}`, 190, doc.y, { width: 60, align: 'right' });
-            doc.moveDown(0.2);
-            
-            // Descuento (si existe)
-            if (descuento > 0) {
-                doc.fillColor('#cc0000');
-                doc.fontSize(9).font('Helvetica');
-                doc.text('DESCUENTO:', 120, doc.y, { width: 80, align: 'right' });
-                doc.text(`-S/ ${descuento.toFixed(2)}`, 190, doc.y, { width: 60, align: 'right' });
-                doc.moveDown(0.2);
-            }
-            
-            // Total (en negrita y más grande)
+
+            // Total (en negrita y más grande) - sin desglose de descuento/subtotal
             doc.fillColor('#1a1a1a');
             doc.fontSize(12).font('Helvetica-Bold');
             doc.text('TOTAL:', 110, doc.y, { width: 90, align: 'right' });
@@ -582,6 +569,22 @@ async function procesarDatosCliente(ctx, estado, texto) {
         let ventaId = ventaIdRaw;
         if (Array.isArray(ventaId)) ventaId = ventaId[0]?.id ?? ventaId[0] ?? ventaId;
         if (ventaId && typeof ventaId === 'object') ventaId = ventaId.id ?? JSON.stringify(ventaId);
+
+        // Guardamos los datos del cliente en la venta (la función procesar_venta
+        // no los recibe, así que los completamos aquí). No es bloqueante: si
+        // falla, la venta y el ticket igual continúan.
+        try {
+            await supabase
+                .from('ventas')
+                .update({
+                    cliente_nombre: cliente.nombre,
+                    cliente_dni: cliente.dni !== '-' ? cliente.dni : null,
+                    cliente_ruc: cliente.ruc !== '-' ? cliente.ruc : null
+                })
+                .eq('id', ventaId);
+        } catch (errUpdateCliente) {
+            console.error("⚠️ No se pudieron guardar los datos del cliente en la venta:", errUpdateCliente);
+        }
 
         const datosTicket = {
             numero: ventaId,
@@ -903,6 +906,166 @@ async function mostrarMovimientosProducto(ctx, productoNombre) {
     } catch (error) {
         console.error("Error:", error);
         return ctx.reply("❌ Error al obtener los movimientos.");
+    }
+}
+
+// ==========================================
+// HISTORIAL DE VENTAS (paginado)
+// ==========================================
+async function mostrarHistorialVentas(ctx, pagina = 1) {
+    try {
+        const ITEMS_POR_PAGINA = 5;
+
+        const { count: totalVentas, error: countError } = await supabase
+            .from('ventas')
+            .select('*', { count: 'exact', head: true });
+
+        if (countError) {
+            console.error("Error al contar ventas:", countError);
+            return ctx.reply("❌ Error al generar el historial de ventas.");
+        }
+
+        if (!totalVentas || totalVentas === 0) {
+            return ctx.reply(
+                "🧾 **HISTORIAL DE VENTAS**\n\nAún no hay ventas registradas.",
+                { parse_mode: 'Markdown' }
+            );
+        }
+
+        const totalPaginas = Math.ceil(totalVentas / ITEMS_POR_PAGINA);
+        pagina = Math.max(1, Math.min(pagina, totalPaginas));
+        const offset = (pagina - 1) * ITEMS_POR_PAGINA;
+
+        const { data: ventas, error } = await supabase
+            .from('ventas')
+            .select(`
+                id, total, metodo_pago, rol_vendedor, created_at,
+                cliente_nombre, cliente_dni, cliente_ruc,
+                detalles_ventas ( cantidad, precio_unitario, productos ( nombre ) )
+            `)
+            .order('created_at', { ascending: false })
+            .range(offset, offset + ITEMS_POR_PAGINA - 1);
+
+        if (error) {
+            console.error("Error en historial de ventas:", error);
+            return ctx.reply("❌ Error al generar el historial de ventas.");
+        }
+
+        let mensaje = `🧾 **HISTORIAL DE VENTAS**\n`;
+        mensaje += `📄 _Página ${pagina} de ${totalPaginas}_ | 📦 ${totalVentas} ventas\n`;
+        mensaje += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+        ventas.forEach(v => {
+            const fecha = new Date(v.created_at).toLocaleString('es-PE', {
+                dateStyle: 'short', timeStyle: 'short'
+            });
+            mensaje += `🧾 *Venta #${v.id}* — ${fecha}\n`;
+            mensaje += `👤 ${v.cliente_nombre || 'Sin datos de cliente'}`;
+            if (v.cliente_dni) mensaje += ` (DNI ${v.cliente_dni})`;
+            if (v.cliente_ruc) mensaje += ` (RUC ${v.cliente_ruc})`;
+            mensaje += `\n`;
+            mensaje += `💳 ${v.metodo_pago} | 🧑‍💼 ${v.rol_vendedor}\n`;
+
+            const detalles = v.detalles_ventas || [];
+            detalles.forEach(d => {
+                const nombre = d.productos?.nombre || 'Producto eliminado';
+                mensaje += `   • ${nombre} x${d.cantidad} — ${fmt(d.cantidad * parseFloat(d.precio_unitario || 0))}\n`;
+            });
+
+            mensaje += `💰 *Total: ${fmt(v.total)}*\n`;
+            mensaje += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+        });
+
+        const keyboard = { inline_keyboard: [] };
+        const navRow = [];
+        if (pagina > 1) navRow.push({ text: "◀️ Anterior", callback_data: `historial_pagina_${pagina - 1}` });
+        if (pagina < totalPaginas) navRow.push({ text: "Siguiente ▶️", callback_data: `historial_pagina_${pagina + 1}` });
+        if (navRow.length > 0) keyboard.inline_keyboard.push(navRow);
+        keyboard.inline_keyboard.push([
+            { text: "🏆 Top Productos", callback_data: "top_productos" },
+            { text: "🏠 Menú", callback_data: "menu_principal" }
+        ]);
+
+        return ctx.reply(mensaje, { reply_markup: keyboard, parse_mode: 'Markdown' });
+
+    } catch (error) {
+        console.error("Error en mostrarHistorialVentas:", error);
+        return ctx.reply("❌ Error al generar el historial de ventas.");
+    }
+}
+
+// ==========================================
+// TOP PRODUCTOS MÁS VENDIDOS POR MES
+// ==========================================
+async function mostrarTopProductos(ctx, mesOffset = 0) {
+    try {
+        const ahora = new Date();
+        const inicioMes = new Date(ahora.getFullYear(), ahora.getMonth() - mesOffset, 1);
+        const finMes = new Date(ahora.getFullYear(), ahora.getMonth() - mesOffset + 1, 1);
+
+        const { data: detalles, error } = await supabase
+            .from('detalles_ventas')
+            .select(`
+                cantidad, precio_unitario,
+                productos ( nombre ),
+                ventas!inner ( created_at )
+            `)
+            .gte('ventas.created_at', inicioMes.toISOString())
+            .lt('ventas.created_at', finMes.toISOString());
+
+        if (error) {
+            console.error("Error en top productos:", error);
+            return ctx.reply("❌ Error al generar el top de productos.");
+        }
+
+        const nombreMes = inicioMes.toLocaleDateString('es-PE', { month: 'long', year: 'numeric' });
+
+        let mensaje = `🏆 **TOP PRODUCTOS MÁS VENDIDOS**\n`;
+        mensaje += `📅 _${nombreMes}_\n`;
+        mensaje += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n`;
+
+        if (!detalles || detalles.length === 0) {
+            mensaje += "No hay ventas registradas en este mes.";
+        } else {
+            const resumen = {};
+            detalles.forEach(d => {
+                const nombre = d.productos?.nombre || 'Producto eliminado';
+                if (!resumen[nombre]) resumen[nombre] = { cantidad: 0, ingreso: 0 };
+                resumen[nombre].cantidad += d.cantidad;
+                resumen[nombre].ingreso += d.cantidad * parseFloat(d.precio_unitario || 0);
+            });
+
+            const ranking = Object.entries(resumen)
+                .map(([nombre, v]) => ({ nombre, ...v }))
+                .sort((a, b) => b.cantidad - a.cantidad)
+                .slice(0, 10);
+
+            const medallas = ['🥇', '🥈', '🥉'];
+            ranking.forEach((p, i) => {
+                const puesto = medallas[i] || `${i + 1}.`;
+                mensaje += `${puesto} *${p.nombre}*\n`;
+                mensaje += `   📦 ${p.cantidad} unidades vendidas | 💰 ${fmt(p.ingreso)}\n`;
+            });
+        }
+
+        const keyboard = { inline_keyboard: [] };
+        const navRow = [
+            { text: "◀️ Mes Anterior", callback_data: `top_productos_mes_${mesOffset + 1}` }
+        ];
+        if (mesOffset > 0) {
+            navRow.push({ text: "Mes Siguiente ▶️", callback_data: `top_productos_mes_${mesOffset - 1}` });
+        }
+        keyboard.inline_keyboard.push(navRow);
+        keyboard.inline_keyboard.push([
+            { text: "🧾 Historial de Ventas", callback_data: "historial_ventas" },
+            { text: "🏠 Menú", callback_data: "menu_principal" }
+        ]);
+
+        return ctx.reply(mensaje, { reply_markup: keyboard, parse_mode: 'Markdown' });
+
+    } catch (error) {
+        console.error("Error en mostrarTopProductos:", error);
+        return ctx.reply("❌ Error al generar el top de productos.");
     }
 }
 
@@ -2041,6 +2204,38 @@ bot.on('callback_query', async (ctx) => {
         }
         estado.esperando = 'movimientos_producto_buscar';
         return ctx.reply("🔍 Escribe el nombre del producto:");
+    }
+
+    // Historial de ventas
+    if (accion === 'historial_ventas') {
+        if (estado.rol !== 'ADMINISTRADOR') {
+            return ctx.reply("⚠️ Solo Administrador.");
+        }
+        return mostrarHistorialVentas(ctx, 1);
+    }
+
+    if (accion.startsWith('historial_pagina_')) {
+        if (estado.rol !== 'ADMINISTRADOR') {
+            return ctx.reply("⚠️ Solo Administrador.");
+        }
+        const pagina = parseInt(accion.split('_')[2]);
+        return mostrarHistorialVentas(ctx, pagina);
+    }
+
+    // Top productos más vendidos por mes
+    if (accion === 'top_productos') {
+        if (estado.rol !== 'ADMINISTRADOR') {
+            return ctx.reply("⚠️ Solo Administrador.");
+        }
+        return mostrarTopProductos(ctx, 0);
+    }
+
+    if (accion.startsWith('top_productos_mes_')) {
+        if (estado.rol !== 'ADMINISTRADOR') {
+            return ctx.reply("⚠️ Solo Administrador.");
+        }
+        const mesOffset = parseInt(accion.split('_')[3]);
+        return mostrarTopProductos(ctx, mesOffset);
     }
 
     // Navegación de páginas de productos
