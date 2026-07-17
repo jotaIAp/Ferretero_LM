@@ -127,11 +127,16 @@ function mostrarPaginaProductos(ctx, productos, pagina, esBusqueda = false) {
         inline_keyboard: []
     };
     
-    if (pagina > 1) {
-        keyboard.inline_keyboard.push([{ text: "◀️", callback_data: `pagina_${pagina-1}` }]);
-    }
-    if (pagina < totalPaginas) {
-        keyboard.inline_keyboard.push([{ text: "▶️", callback_data: `pagina_${pagina+1}` }]);
+    const navRow = [];
+    if (pagina > 1) navRow.push({ text: "◀️ Anterior", callback_data: `pagina_${pagina-1}` });
+    if (pagina < totalPaginas) navRow.push({ text: "Siguiente ▶️", callback_data: `pagina_${pagina+1}` });
+    if (navRow.length > 0) keyboard.inline_keyboard.push(navRow);
+
+    if (esBusqueda) {
+        keyboard.inline_keyboard.push([
+            { text: "🛒 Ver Carrito", callback_data: "ver_carrito" },
+            { text: "🏠 Menú", callback_data: "menu_principal" }
+        ]);
     }
     
     const estado = getEstado(ctx.from.id);
@@ -186,11 +191,11 @@ function mostrarCarrito(ctx, estado) {
     
     const keyboard = {
         inline_keyboard: [
-            [{ text: "✏️ Editar Precio", callback_data: "editar_precio_carrito" }],
-            [{ text: "🏷️ Descuento Global", callback_data: "descuento_global" }],
+            [{ text: "✏️ Editar Precio", callback_data: "editar_precio_carrito" }, { text: "🏷️ Descuento Global", callback_data: "descuento_global" }],
             [{ text: "💵 Efectivo", callback_data: "pago_Efectivo" }, { text: "💳 Tarjeta", callback_data: "pago_Tarjeta" }],
             [{ text: "📱 Transferencia", callback_data: "pago_Transferencia" }],
-            [{ text: "🔙 Volver", callback_data: "volver_busqueda" }]
+            [{ text: "🔍 Seguir Comprando", callback_data: "volver_busqueda" }, { text: "🗑️ Vaciar", callback_data: "vaciar_carrito" }],
+            [{ text: "🏠 Menú Principal", callback_data: "menu_principal" }]
         ]
     };
     
@@ -276,6 +281,12 @@ async function generarTicketVenta(datosVenta) {
             doc.on('end', () => {
                 const pdfData = Buffer.concat(buffers);
                 resolve(pdfData);
+            });
+            // CRÍTICO: sin este listener, un error del stream de PDFKit nunca
+            // rechaza ni resuelve la promesa -> la venta se queda "colgada"
+            // esperando la boleta para siempre (parecía que "fallaba" sin dar error).
+            doc.on('error', (err) => {
+                reject(err);
             });
             
             // --- CONFIGURACIÓN DE MÁRGENES ---
@@ -474,22 +485,171 @@ async function generarTicketVenta(datosVenta) {
     });
 }
 
+function conTimeout(promesa, ms, mensajeError) {
+    return Promise.race([
+        promesa,
+        new Promise((_, reject) => setTimeout(() => reject(new Error(mensajeError)), ms))
+    ]);
+}
+
 async function enviarTicket(ctx, datosVenta) {
     try {
-        const pdfBuffer = await generarTicketVenta(datosVenta);
-        
+        const pdfBuffer = await conTimeout(
+            generarTicketVenta(datosVenta),
+            15000,
+            'Tiempo de espera agotado generando el PDF'
+        );
+
         await ctx.replyWithDocument({
             source: pdfBuffer,
-            filename: `ticket_${datosVenta.numero}.pdf`
+            filename: `boleta_${datosVenta.numero}.pdf`
         }, {
-            caption: `✅ **VENTA EXITOSA!**\n📝 Ticket #${datosVenta.numero}\n\n📱 *Comparte este ticket con tu cliente por WhatsApp*`,
+            caption: `🧾 **BOLETA #${datosVenta.numero}**\n📱 _Comparte este ticket con tu cliente por WhatsApp_`,
             parse_mode: 'Markdown'
         });
-        
-        return true;
+
+        return { ok: true };
     } catch (error) {
-        console.error("Error al enviar ticket:", error);
-        return false;
+        console.error("❌ Error al enviar boleta:", error);
+        return { ok: false, error: error.message || 'Error desconocido' };
+    }
+}
+
+// ==========================================
+// FUNCIÓN: PROCESAR DATOS DEL CLIENTE Y CERRAR LA VENTA
+// (reutilizable desde texto libre o desde el botón "Cliente Genérico")
+// ==========================================
+async function procesarDatosCliente(ctx, estado, texto) {
+    if (texto.toLowerCase() === 'cancelar') {
+        estado.esperando = null;
+        estado.temp = null;
+        return ctx.reply("❌ Venta cancelada.");
+    }
+
+    const partes = texto.split(/[,;]/).map(p => p.trim());
+    const cliente = {
+        nombre: partes[0] || '___________________',
+        dni: partes[1] || '-',
+        ruc: partes[2] || '-',
+        telefono: partes[3] || '-'
+    };
+
+    if (cliente.nombre === '___________________') {
+        return ctx.reply("❌ El nombre del cliente es obligatorio. Usa el formato: `Nombre, DNI, RUC, Teléfono`");
+    }
+
+    const metodo = estado.temp?.metodoPago || 'Efectivo';
+    const totalVenta = estado.carrito.reduce((acc, item) => acc + (Number(item.precio) * item.cantidad), 0);
+    const totalOriginal = estado.carrito.reduce((acc, item) => acc + (Number(item.precioOriginal || item.precio) * item.cantidad), 0);
+    const totalCosto = estado.carrito.reduce((acc, item) => acc + (Number(item.costo_unitario || 0) * item.cantidad), 0);
+    const totalAhorro = totalOriginal - totalVenta;
+
+    await ctx.reply("⏳ *Procesando venta y generando boleta...*", { parse_mode: 'Markdown' });
+
+    try {
+        const itemsArray = estado.carrito.map(item => ({
+            id: item.id,
+            cantidad: item.cantidad,
+            // Number(...) por seguridad: Supabase puede devolver columnas
+            // "numeric" como texto, y .toFixed() sobre un string rompía la venta.
+            precio: parseFloat(Number(item.precio).toFixed(2)),
+            nombre: item.nombre,
+            precio_original: item.precioOriginal || item.precio,
+            descuento_porcentaje: item.descuentoPorcentaje || 0,
+            descuento_fijo: item.descuentoFijo || 0,
+            precio_personalizado: item.precioPersonalizado || null,
+            precio_sugerido: item.precioSugerido || null
+        }));
+
+        const { data: ventaIdRaw, error } = await supabase.rpc('procesar_venta', {
+            p_total: parseFloat(totalVenta.toFixed(2)),
+            p_metodo_pago: metodo,
+            p_rol_vendedor: estado.rol || 'VENDEDOR',
+            p_items: itemsArray.map(item => ({
+                id: item.id,
+                cantidad: item.cantidad,
+                precio: item.precio
+            }))
+        });
+
+        if (error) {
+            console.error("❌ Error al procesar venta:", error);
+            return ctx.reply(`❌ *Error al procesar la venta:*\n${error.message || 'Error desconocido'}`, { parse_mode: 'Markdown' });
+        }
+
+        // La venta ya fue registrada en Supabase en este punto. Normalizamos
+        // el id por si la función RPC devuelve un array de filas o un objeto.
+        let ventaId = ventaIdRaw;
+        if (Array.isArray(ventaId)) ventaId = ventaId[0]?.id ?? ventaId[0] ?? ventaId;
+        if (ventaId && typeof ventaId === 'object') ventaId = ventaId.id ?? JSON.stringify(ventaId);
+
+        const datosTicket = {
+            numero: ventaId,
+            cliente: cliente.nombre,
+            dni: cliente.dni,
+            ruc: cliente.ruc,
+            telefono: cliente.telefono,
+            productos: estado.carrito.map(item => ({
+                nombre: item.nombre,
+                cantidad: item.cantidad,
+                precio: Number(item.precio)
+            })),
+            total: totalOriginal,
+            totalConDescuento: totalVenta,
+            descuento: totalAhorro,
+            metodoPago: metodo,
+            vendedor: estado.rol || 'VENDEDOR'
+        };
+
+        const resultadoTicket = await enviarTicket(ctx, datosTicket);
+
+        let msg = `✅ **¡VENTA #${ventaId} REGISTRADA!**\n`;
+        msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        msg += `👤 *Cliente:* ${cliente.nombre}\n`;
+        if (cliente.dni !== '-') msg += `🪪 *DNI:* ${cliente.dni}\n`;
+        if (cliente.ruc !== '-') msg += `📋 *RUC:* ${cliente.ruc}\n`;
+        if (cliente.telefono !== '-') msg += `📱 *Tel:* ${cliente.telefono}\n`;
+        msg += `💳 *Pago:* ${metodo}\n`;
+        msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+
+        estado.carrito.forEach(item => {
+            const subtotal = Number(item.precio) * item.cantidad;
+            msg += `• ${item.nombre} x${item.cantidad} — ${fmt(subtotal)}\n`;
+        });
+
+        msg += `━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`;
+        msg += `💰 *Total:* ${fmt(totalVenta)}\n`;
+        if (totalAhorro > 0) {
+            msg += `💵 *Ahorro:* ${fmt(totalAhorro)}\n`;
+        }
+        msg += `📈 *Utilidad:* ${fmt(totalVenta - totalCosto)}\n`;
+
+        if (!resultadoTicket.ok) {
+            msg += `\n⚠️ *La venta se guardó correctamente, pero no se pudo generar/enviar el PDF de la boleta.*\n`;
+            msg += `_Motivo: ${resultadoTicket.error}_\n`;
+            msg += `\nPuedes reintentar el envío con el botón de abajo.`;
+        }
+
+        limpiarCarrito(estado); // Nota: esto también resetea estado.temp
+
+        const keyboard = { inline_keyboard: [] };
+        if (!resultadoTicket.ok) {
+            // Re-guardamos la boleta pendiente después de limpiar el carrito,
+            // porque limpiarCarrito() borra estado.temp.
+            estado.temp = { ultimaBoleta: datosTicket };
+            keyboard.inline_keyboard.push([{ text: "🔄 Reintentar enviar boleta", callback_data: "reintentar_boleta" }]);
+        }
+        keyboard.inline_keyboard.push([
+            { text: "🆕 Nueva Venta", callback_data: "buscar_productos" },
+            { text: "🏠 Menú Principal", callback_data: "menu_principal" }
+        ]);
+
+        await ctx.reply(msg, { reply_markup: keyboard, parse_mode: 'Markdown' });
+        return;
+
+    } catch (error) {
+        console.error("❌ Error en venta:", error);
+        return ctx.reply(`❌ *Error al procesar la venta:*\n${error.message || 'Error desconocido'}`, { parse_mode: 'Markdown' });
     }
 }
 
@@ -813,111 +973,7 @@ bot.on('text', async (ctx) => {
     // FLUJO: DATOS DEL CLIENTE Y PROCESAR VENTA
     // ==========================================
     if (estado.esperando === 'datos_cliente') {
-        if (texto.toLowerCase() === 'cancelar') {
-            estado.esperando = null;
-            estado.temp = null;
-            return ctx.reply("❌ Venta cancelada.");
-        }
-        
-        const partes = texto.split(/[,;]/).map(p => p.trim());
-        const cliente = {
-            nombre: partes[0] || '___________________',
-            dni: partes[1] || '-',
-            ruc: partes[2] || '-',
-            telefono: partes[3] || '-'
-        };
-        
-        if (cliente.nombre === '___________________') {
-            return ctx.reply("❌ El nombre del cliente es obligatorio. Usa el formato: `Nombre, DNI, RUC, Teléfono`");
-        }
-        
-        const metodo = estado.temp.metodoPago || 'Efectivo';
-        const totalVenta = estado.carrito.reduce((acc, item) => acc + (item.precio * item.cantidad), 0);
-        const totalOriginal = estado.carrito.reduce((acc, item) => acc + ((item.precioOriginal || item.precio) * item.cantidad), 0);
-        const totalCosto = estado.carrito.reduce((acc, item) => acc + ((item.costo_unitario || 0) * item.cantidad), 0);
-        const totalAhorro = totalOriginal - totalVenta;
-        
-        ctx.reply("⏳ Procesando venta y generando ticket...");
-
-        try {
-            const itemsArray = estado.carrito.map(item => ({
-                id: item.id,
-                cantidad: item.cantidad,
-                precio: parseFloat(item.precio.toFixed(2)),
-                nombre: item.nombre,
-                precio_original: item.precioOriginal || item.precio,
-                descuento_porcentaje: item.descuentoPorcentaje || 0,
-                descuento_fijo: item.descuentoFijo || 0,
-                precio_personalizado: item.precioPersonalizado || null,
-                precio_sugerido: item.precioSugerido || null
-            }));
-
-            const { data: ventaId, error } = await supabase.rpc('procesar_venta', {
-                p_total: parseFloat(totalVenta.toFixed(2)),
-                p_metodo_pago: metodo,
-                p_rol_vendedor: estado.rol || 'VENDEDOR',
-                p_items: itemsArray.map(item => ({
-                    id: item.id,
-                    cantidad: item.cantidad,
-                    precio: item.precio
-                }))
-            });
-
-            if (error) {
-                console.error("❌ Error al procesar venta:", error);
-                return ctx.reply(`❌ Error al procesar la venta: ${error.message || 'Error desconocido'}`);
-            }
-
-            const datosTicket = {
-                numero: ventaId,
-                cliente: cliente.nombre,
-                dni: cliente.dni,
-                ruc: cliente.ruc,
-                telefono: cliente.telefono,
-                productos: estado.carrito.map(item => ({
-                    nombre: item.nombre,
-                    cantidad: item.cantidad,
-                    precio: item.precio                })),
-                total: totalOriginal,
-                totalConDescuento: totalVenta,
-                descuento: totalAhorro,
-                metodoPago: metodo,
-                vendedor: estado.rol || 'VENDEDOR'
-            };
-
-            await enviarTicket(ctx, datosTicket);
-
-            let msg = `✅ **¡VENTA EXITOSA!**\n`;
-            msg += `📝 #${ventaId}\n`;
-            msg += `👤 Cliente: ${cliente.nombre}\n`;
-            if (cliente.dni !== '-') msg += `🪪 DNI: ${cliente.dni}\n`;
-            if (cliente.ruc !== '-') msg += `📋 RUC: ${cliente.ruc}\n`;
-            if (cliente.telefono !== '-') msg += `📱 Tel: ${cliente.telefono}\n`;
-            msg += `💳 Pago: ${metodo}\n`;
-            msg += `-----------------------------------\n`;
-            
-            estado.carrito.forEach(item => {
-                const subtotal = item.precio * item.cantidad;
-                msg += `• ${item.nombre} x${item.cantidad} — ${fmt(subtotal)}\n`;
-            });
-            
-            msg += `-----------------------------------\n`;
-            msg += `💰 Total: ${fmt(totalVenta)}\n`;
-            if (totalAhorro > 0) {
-                msg += `💵 Ahorro: ${fmt(totalAhorro)}\n`;
-            }
-            msg += `📈 Utilidad: ${fmt(totalVenta - totalCosto)}\n`;
-
-            limpiarCarrito(estado);
-            estado.temp = null;
-            
-            await ctx.reply(msg, { parse_mode: 'Markdown' });
-            return mostrarMenuPrincipal(ctx);
-            
-        } catch (error) {
-            console.error("❌ Error en venta:", error);
-            return ctx.reply(`❌ Error al procesar la venta: ${error.message || 'Error desconocido'}`);
-        }
+        return procesarDatosCliente(ctx, estado, texto);
     }
 
     // ==========================================
@@ -1681,6 +1737,28 @@ bot.on('callback_query', async (ctx) => {
         });
     }
 
+    // Reintentar envío de boleta que falló
+    if (accion === 'reintentar_boleta') {
+        const datosTicket = estado.temp?.ultimaBoleta;
+        if (!datosTicket) {
+            return ctx.reply("⚠️ No hay ninguna boleta pendiente para reintentar.");
+        }
+        await ctx.reply("⏳ *Reintentando generar boleta...*", { parse_mode: 'Markdown' });
+        const resultado = await enviarTicket(ctx, datosTicket);
+        if (resultado.ok) {
+            estado.temp = null;
+            return ctx.reply("✅ Boleta enviada correctamente.");
+        }
+        return ctx.reply(
+            `❌ *Sigue sin poder generarse la boleta.*\n_Motivo: ${resultado.error}_\n\n` +
+            `Si el problema persiste, revisa los logs del bot o contacta soporte.`,
+            {
+                parse_mode: 'Markdown',
+                reply_markup: { inline_keyboard: [[{ text: "🔄 Reintentar de nuevo", callback_data: "reintentar_boleta" }]] }
+            }
+        );
+    }
+
     // Menú principal
     if (accion === 'menu_principal') {
         limpiarCarrito(estado);
@@ -1996,19 +2074,48 @@ bot.on('callback_query', async (ctx) => {
         estado.temp = estado.temp || {};
         estado.temp.metodoPago = metodo;
         estado.esperando = 'datos_cliente';
+
+        const totalVenta = estado.carrito.reduce((acc, item) => acc + (Number(item.precio) * item.cantidad), 0);
         
         return ctx.reply(
-            "📋 **DATOS DEL CLIENTE**\n\n" +
-            "Para generar el ticket de venta, ingresa los datos del cliente:\n\n" +
+            `📋 **DATOS DEL CLIENTE**\n\n` +
+            `💳 *Método de pago:* ${metodo}\n` +
+            `💰 *Total a cobrar:* ${fmt(totalVenta)}\n\n` +
+            "Para generar la boleta, ingresa los datos del cliente:\n\n" +
             "📝 **Formato:**\n" +
             "`Nombre, DNI, RUC, Teléfono`\n\n" +
             "Ejemplo:\n" +
             "`Juan Pérez, 12345678, 20601234567, 987654321`\n\n" +
-            "Opcional: Puedes dejar campos en blanco con `-`\n" +
+            "Opcional: deja campos en blanco con `-`\n" +
             "Ejemplo: `Juan Pérez, 12345678, -, -`\n\n" +
-            "✏️ Escribe los datos del cliente:",
-            { parse_mode: 'Markdown' }
+            "✏️ Escribe los datos, o usa un botón:",
+            {
+                parse_mode: 'Markdown',
+                reply_markup: {
+                    inline_keyboard: [
+                        [{ text: "👤 Cliente Genérico (sin datos)", callback_data: "cliente_generico" }],
+                        [{ text: "❌ Cancelar Venta", callback_data: "cancelar_venta" }]
+                    ]
+                }
+            }
         );
+    }
+
+    // Cliente genérico: omite pedir datos y usa placeholders
+    if (accion === 'cliente_generico') {
+        if (estado.esperando !== 'datos_cliente') {
+            return ctx.reply("⚠️ No hay ninguna venta en curso.");
+        }
+        return procesarDatosCliente(ctx, estado, "Cliente Varios, -, -, -");
+    }
+
+    // Cancelar venta desde botón
+    if (accion === 'cancelar_venta') {
+        estado.esperando = null;
+        estado.temp = null;
+        return ctx.reply("❌ Venta cancelada.", {
+            reply_markup: { inline_keyboard: [[{ text: "🏠 Menú Principal", callback_data: "menu_principal" }]] }
+        });
     }
 });
 
